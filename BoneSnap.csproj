@@ -99,4 +99,34 @@
       <None Remove=".gitignore" />
     </ItemGroup>
 
+    <PropertyGroup>
+      <DeployToGame Condition="'$(DeployToGame)' == ''">true</DeployToGame>
+    </PropertyGroup>
+
+    <ItemDefinitionGroup>
+      <Reference>
+        <Private>false</Private>
+      </Reference>
+    </ItemDefinitionGroup>
+
+    <Target Name="CheckBonelabDir" BeforeTargets="ResolveAssemblyReferences">
+      <Error Condition="'$(BONELAB_DIR)' == ''" Text="BONELAB_DIR isn't set. set it to your bonelab install folder (user env var), then restart your IDE." />
+      <Error Condition="'$(BONELAB_DIR)' != '' And !Exists('$(MelonNet6)\MelonLoader.dll')" Text="MelonLoader is missing from BONELAB_DIR ($(BONELAB_DIR)). check the path, or launch the game at least once." />
+    </Target>
+
+    <!-- copies the built mod into $(BONELAB_DIR)\Mods; pass -p:DeployToGame=false to skip -->
+    <Target Name="DeployToGame" AfterTargets="Build" Condition="'$(DeployToGame)' == 'true'">
+      <ItemGroup>
+        <_DeployModFiles Include="$(TargetPath)" />
+        <_DeployModFiles Include="$(TargetDir)$(TargetName).pdb" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
+      </ItemGroup>
+      <Warning Condition="!Exists('$(BONELAB_DIR)')" Text="skipping deploy: BONELAB_DIR ($(BONELAB_DIR)) doesn't exist." />
+      <MakeDir Directories="$(BonelabModsDir)" Condition="Exists('$(BONELAB_DIR)')" />
+      <!-- the dll is locked while the game is running -->
+      <Copy SourceFiles="@(_DeployModFiles)" DestinationFolder="$(BonelabModsDir)" SkipUnchangedFiles="true" Retries="3" RetryDelayMilliseconds="500" ContinueOnError="WarnAndContinue" Condition="Exists('$(BONELAB_DIR)')">
+        <Output TaskParameter="CopiedFiles" ItemName="_DeployedFiles" />
+      </Copy>
+      <Message Importance="high" Text="$(TargetName) -&gt; $(BonelabModsDir)" Condition="'@(_DeployedFiles)' != ''" />
+    </Target>
+
 </Project>

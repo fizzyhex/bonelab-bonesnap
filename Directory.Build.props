@@ -1,0 +1,13 @@
+<Project>
+  <!--
+    Uses the BONELAB_DIR env var, or falls back to the default Steam library path.
+  -->
+  <PropertyGroup>
+    <_SteamPath Condition="'$(OS)' == 'Windows_NT'">$([MSBuild]::GetRegistryValueFromView('HKEY_CURRENT_USER\Software\Valve\Steam', 'SteamPath', null, RegistryView.Default))</_SteamPath>
+    <BONELAB_DIR Condition="'$(BONELAB_DIR)' == '' And '$(_SteamPath)' != ''">$(_SteamPath)\steamapps\common\BONELAB</BONELAB_DIR>
+    <BONELAB_DIR Condition="'$(BONELAB_DIR)' != ''">$([System.IO.Path]::GetFullPath('$(BONELAB_DIR)').TrimEnd('\').TrimEnd('/'))</BONELAB_DIR>
+
+    <BonelabModsDir>$(BONELAB_DIR)\Mods</BonelabModsDir>
+    <MelonNet6>$(BONELAB_DIR)\MelonLoader\net6</MelonNet6>
+  </PropertyGroup>
+</Project>

@@ -62,9 +62,16 @@ internal class Screenshotter
 
         try
         {
+            var stopwatch = Stopwatch.StartNew();
             var captureTexture = RenderCamera(captureParams.Camera, width, height);
+            var renderMs = stopwatch.ElapsedMilliseconds;
+
+            stopwatch.Restart();
             bytes = Encode(captureTexture, captureParams.Quality, out format);
+            var encodeMs = stopwatch.ElapsedMilliseconds;
             UnityEngine.Object.Destroy(captureTexture);
+
+            MelonLogger.Msg(ConsoleColor.Green, $"- Taken! (render {renderMs} ms, encode {encodeMs} ms)");
         }
         finally
         {
@@ -94,9 +101,6 @@ internal class Screenshotter
 
     private static Texture2D RenderCamera(Camera camera, int width, int height)
     {
-        var captureStopwatch = new Stopwatch();
-        captureStopwatch.Start();
-
         // The camera may already be rendering to a texture of its own
         var previousTargetTexture = camera.targetTexture;
         var previousActiveTexture = RenderTexture.active;
@@ -120,9 +124,6 @@ internal class Screenshotter
             UnityEngine.Object.Destroy(rt);
         }
 
-        captureStopwatch.Stop();
-        MelonLogger.Msg(ConsoleColor.Green, $"- Taken! ({captureStopwatch.ElapsedMilliseconds} ms)");
-
         return captureTexture;
     }
 
@@ -138,14 +139,14 @@ internal class Screenshotter
 
     private async Task OutputCapture(byte[] bytes, string format, string outputPath)
     {
-        var outputStopwatch = new Stopwatch();
-        outputStopwatch.Start();
+        var stopwatch = Stopwatch.StartNew();
 
         Directory.CreateDirectory(outputPath);
         var filePath = outputPath + $"/{NewCaptureName(format)}";
 
         LogFileSize(bytes, filePath);
-        await WriteToFileAsync(filePath, bytes, () => LogOutputCompletion(outputStopwatch));
+        await WriteToFileAsync(filePath, bytes);
+        LogOutputCompletion(stopwatch.ElapsedMilliseconds);
     }
 
     private async Task OutputFisheyeCapture(CaptureParams captureParams)
@@ -218,10 +219,9 @@ internal class Screenshotter
         MelonLogger.Msg($"{fileSizeInMegabytes:F2} MB capture -> {filePath}...");
     }
 
-    private static void LogOutputCompletion(Stopwatch stopwatch)
+    private static void LogOutputCompletion(long elapsedMs)
     {
-        stopwatch.Stop();
-        MelonLogger.Msg(ConsoleColor.Green, $"- Saved! ({stopwatch.ElapsedMilliseconds} ms)");
+        MelonLogger.Msg(ConsoleColor.Green, $"- Saved! ({elapsedMs} ms)");
         MelonLogger.Msg("");
     }
 
@@ -252,11 +252,10 @@ internal class Screenshotter
         await OutputCapture(bytes, format, captureParams.OutputPath);
     }
 
-    private static async Task WriteToFileAsync(string path, byte[] imageData, Action? onComplete=null)
+    private static async Task WriteToFileAsync(string path, byte[] imageData)
     {
         await using var stream = new FileStream(path, FileMode.Create);
         await stream.WriteAsync(imageData);
-        onComplete?.Invoke();
     }
 
     private void PrepareCapture(float waitTime, Action callback)
