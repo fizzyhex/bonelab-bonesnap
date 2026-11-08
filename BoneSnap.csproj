@@ -5,6 +5,8 @@
         <LangVersion>preview</LangVersion>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <!-- Shared SDK scripts (see SDK/) use this to tell the mod build apart from the Unity SDK -->
+        <DefineConstants>$(DefineConstants);MELONLOADER</DefineConstants>
     </PropertyGroup>
 
     <ItemGroup>
@@ -18,10 +20,10 @@
         <HintPath>References\Il2CppAssemblies\Assembly-CSharp-firstpass.dll</HintPath>
       </Reference>
       <Reference Include="AudioImportLib">
-        <HintPath>References\AudioImportLib.dll</HintPath>
+        <HintPath>$(BONELAB_DIR)\Mods\AudioImportLib.dll</HintPath>
       </Reference>
       <Reference Include="BoneLib">
-        <HintPath>References\BoneLib.dll</HintPath>
+        <HintPath>$(BONELAB_DIR)\Mods\BoneLib.dll</HintPath>
       </Reference>
       <Reference Include="Il2CppInterop.Common">
         <HintPath>References\net6\Il2CppInterop.Common.dll</HintPath>
