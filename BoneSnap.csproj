@@ -35,6 +35,9 @@
       <Reference Include="Il2Cppmscorlib">
         <HintPath>References\Il2CppAssemblies\Il2Cppmscorlib.dll</HintPath>
       </Reference>
+      <Reference Include="Il2CppOccaSoftware.Exposure">
+        <HintPath>E:\SteamLibrary\steamapps\common\BONELAB\MelonLoader\Il2CppAssemblies\Il2CppOccaSoftware.Exposure.dll</HintPath>
+      </Reference>
       <Reference Include="Il2CppSLZ.Algorithms">
         <HintPath>References\Il2CppAssemblies\Il2CppSLZ.Algorithms.dll</HintPath>
       </Reference>
@@ -68,6 +71,12 @@
       <Reference Include="System.Windows.Forms">
         <HintPath>References\Managed\System.Windows.Forms.dll</HintPath>
       </Reference>
+      <Reference Include="Unity.InputSystem">
+        <HintPath>E:\SteamLibrary\steamapps\common\BONELAB\MelonLoader\Dependencies\Il2CppAssemblyGenerator\Cpp2IL\cpp2il_out\Unity.InputSystem.dll</HintPath>
+      </Reference>
+      <Reference Include="Unity.RenderPipelines.Core.Runtime">
+        <HintPath>E:\SteamLibrary\steamapps\common\BONELAB\MelonLoader\Il2CppAssemblies\Unity.RenderPipelines.Core.Runtime.dll</HintPath>
+      </Reference>
       <Reference Include="UnityEngine">
         <HintPath>References\Il2CppAssemblies\UnityEngine.dll</HintPath>
       </Reference>
@@ -82,6 +91,9 @@
       </Reference>
       <Reference Include="UnityEngine.IMGUIModule">
         <HintPath>References\Il2CppAssemblies\UnityEngine.IMGUIModule.dll</HintPath>
+      </Reference>
+      <Reference Include="UnityEngine.InputLegacyModule">
+        <HintPath>E:\SteamLibrary\steamapps\common\BONELAB\MelonLoader\Il2CppAssemblies\UnityEngine.InputLegacyModule.dll</HintPath>
       </Reference>
       <Reference Include="UnityEngine.TLSModule">
         <HintPath>References\Il2CppAssemblies\UnityEngine.TLSModule.dll</HintPath>
