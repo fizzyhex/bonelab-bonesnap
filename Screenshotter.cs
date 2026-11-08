@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using BoneSnap.Assets;
+using BoneSnap.Utilities;
 using Il2CppOccaSoftware.Exposure.Runtime;
 using Il2CppSLZ.Bonelab.SaveData;
 using Il2CppSLZ.Marrow.SaveData;
@@ -9,11 +10,25 @@ using static BoneSnap.CoroutineUtils;
 
 namespace BoneSnap;
 
-internal static class Screenshotter
+internal class Screenshotter
 {
-    private static int _screenshotIndex;
     private const float Megabyte = 1024f;
-    public static string? LastCaptureFileName { get; private set; }
+    
+    private const int SdkCaptureLimit = 5;
+    private const float SdkCaptureWindowSeconds = 3;
+
+    private readonly ReferenceCache _referenceCache;
+    
+    // Prevents evil SDK mods from spamming screenshots
+    private readonly RateLimiter _sdkRateLimiter = new(SdkCaptureLimit, SdkCaptureWindowSeconds);
+    
+    private int _screenshotIndex;
+    public string? LastCaptureFileName { get; private set; }
+
+    public Screenshotter(ReferenceCache referenceCache)
+    {
+        _referenceCache = referenceCache;
+    }
 
     private static string GenerateTimecode(DateTime time)
     {
@@ -23,10 +38,119 @@ internal static class Screenshotter
         return datestamp + " " + timestamp;
     }
 
-    private static async Task OutputFisheyeCapture(string outputPath, int quality = 100, float resolutionScale = 1)
+    /// <summary>
+    /// Renders <see cref="CaptureParams.Camera"/> at the requested size and writes the result to the output path.
+    /// </summary>
+    public async Task Capture(CaptureParams captureParams)
     {
+        if (captureParams.Camera == null)
+        {
+            MelonLogger.Warning("No camera was provided for the capture!");
+            return;
+        }
+
         MelonLogger.Msg("Capturing...");
-        var spectatorReferences = ReferenceCache.GetSpectatorReferences();
+
+        // Render scales other than 1 can cause the ambient occlusion to become offset
+        var renderScale = GraphicsManager.graphicsSettings.RenderScale;
+        GraphicsManager.graphicsSettings.RenderScale = 1;
+
+        byte[] bytes;
+        string format;
+
+        var (width, height) = ClampToMaxTextureSize(captureParams.Width, captureParams.Height);
+
+        try
+        {
+            var captureTexture = RenderCamera(captureParams.Camera, width, height);
+            bytes = Encode(captureTexture, captureParams.Quality, out format);
+            UnityEngine.Object.Destroy(captureTexture);
+        }
+        finally
+        {
+            GraphicsManager.graphicsSettings.RenderScale = renderScale;
+        }
+
+        await OutputCapture(bytes, format, captureParams.OutputPath);
+    }
+
+    /// <summary>
+    /// Shrinks size within the bounds of <see cref="SystemInfo.maxTextureSize"/> while maintaing aspect ratio.
+    /// </summary>
+    private static (int Width, int Height) ClampToMaxTextureSize(int width, int height)
+    {
+        var maxTextureSize = SystemInfo.maxTextureSize;
+        var largestSide = Math.Max(width, height);
+
+        if (largestSide <= maxTextureSize)
+            return (width, height);
+
+        var scale = (double)maxTextureSize / largestSide;
+        var clampedWidth = Math.Min(maxTextureSize, Math.Max(1, (int)Math.Floor(width * scale)));
+        var clampedHeight = Math.Min(maxTextureSize, Math.Max(1, (int)Math.Floor(height * scale)));
+        
+        return (clampedWidth, clampedHeight);
+    }
+
+    private static Texture2D RenderCamera(Camera camera, int width, int height)
+    {
+        var captureStopwatch = new Stopwatch();
+        captureStopwatch.Start();
+
+        // The camera may already be rendering to a texture of its own
+        var previousTargetTexture = camera.targetTexture;
+        var previousActiveTexture = RenderTexture.active;
+
+        var rt = new RenderTexture(width, height, 24);
+        var captureTexture = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+
+        try
+        {
+            camera.targetTexture = rt;
+            camera.Render();
+
+            RenderTexture.active = rt;
+            captureTexture.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+            captureTexture.Apply();
+        }
+        finally
+        {
+            camera.targetTexture = previousTargetTexture;
+            RenderTexture.active = previousActiveTexture;
+            UnityEngine.Object.Destroy(rt);
+        }
+
+        captureStopwatch.Stop();
+        MelonLogger.Msg(ConsoleColor.Green, $"- Taken! ({captureStopwatch.ElapsedMilliseconds} ms)");
+
+        return captureTexture;
+    }
+
+    private static byte[] Encode(Texture2D texture, int quality, out string format)
+    {
+        format = quality == 100 ? "png" : "jpg";
+
+        // A quality of 100 means PNG, so JPGs are bumped up a step to make full JPG quality reachable
+        return format == "png"
+            ? texture.EncodeToPNG()
+            : texture.EncodeToJPG(quality: Mathf.Min(quality + CapturePrefs.CaptureQualityIncrement, 100));
+    }
+
+    private async Task OutputCapture(byte[] bytes, string format, string outputPath)
+    {
+        var outputStopwatch = new Stopwatch();
+        outputStopwatch.Start();
+
+        Directory.CreateDirectory(outputPath);
+        var filePath = outputPath + $"/{NewCaptureName(format)}";
+
+        LogFileSize(bytes, filePath);
+        await WriteToFileAsync(filePath, bytes, () => LogOutputCompletion(outputStopwatch));
+    }
+
+    private async Task OutputFisheyeCapture(CaptureParams captureParams)
+    {
+        var spectatorReferences = _referenceCache.GetSpectatorReferences();
 
         if (spectatorReferences.Camera == null)
         {
@@ -60,71 +184,25 @@ internal static class Screenshotter
             spectatorReferences.RigScreenOptions.SetSpectatorCamera(SpectatorCameraMode.Fisheye, spectatorReferences.RigScreenOptions.eyeTarget);
         }
 
-        // Render scales other than 1 can cause the ambient occlusion to become offset
-        var renderScale = GraphicsManager.graphicsSettings.RenderScale;
-        GraphicsManager.graphicsSettings.RenderScale = 1;
-
-        // Take capture
-
-        var format = quality == 100 ? "png" : "jpg";
-        var width = (int)Math.Round(Screen.width * resolutionScale);
-        var height = (int)Math.Round(Screen.height * resolutionScale);
-
-        var captureStopwatch = new Stopwatch();
-        captureStopwatch.Start();
-
-        var rt = new RenderTexture(width, height, 24);
-        spectatorReferences.Camera.targetTexture = rt;
-
-        var captureTexture = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
-        spectatorReferences.Camera.Render();
-
-        RenderTexture.active = rt;
-
-        captureTexture.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
-        captureTexture.Apply();
-
-        spectatorReferences.Camera.targetTexture = null;
-        RenderTexture.active = null;
-
-        // Encode
-
-        byte[] bytes = format == "png" ? captureTexture.EncodeToPNG() : captureTexture.EncodeToJPG(quality: Mathf.Min(quality + CapturePrefs.CaptureQualityIncrement, 100));
-
-        captureStopwatch.Stop();
-        MelonLogger.Msg(ConsoleColor.Green, $"- Taken! ({captureStopwatch.ElapsedMilliseconds} ms)");
-
-        // Clean-up & remove any overrides
-
-        RenderTexture.active = null;
-        UnityEngine.Object.Destroy(rt);
-        UnityEngine.Object.Destroy(captureTexture);
-
-        spectatorReferences.RigScreenOptions.SetSpectatorCamera(spectatorCameraMode, spectatorReferences.RigScreenOptions.eyeTarget);
-
-        if (autoExposureMode != null && spectatorReferences.AutoExposure != null)
+        try
         {
-            spectatorReferences.AutoExposure.active = autoExposureActive;
-            spectatorReferences.AutoExposure.mode = new AutoExposureModeParameter((AutoExposureMode)autoExposureMode);
+            await Capture(captureParams with { Camera = spectatorReferences.Camera });
         }
+        finally
+        {
+            // Clean-up & remove any overrides
 
-        GraphicsManager.graphicsSettings.RenderScale = renderScale;
+            spectatorReferences.RigScreenOptions.SetSpectatorCamera(spectatorCameraMode, spectatorReferences.RigScreenOptions.eyeTarget);
 
-        // Output to file
-
-        var outputStopwatch = new Stopwatch();
-        outputStopwatch.Start();
-
-        _screenshotIndex++;
-        Directory.CreateDirectory(outputPath);
-        GenerateTimecode(DateTime.Now);
-        var filePath = outputPath + $"/{NewCaptureName(format)}";
-
-        LogFileSize(bytes, filePath);
-        await WriteToFileAsync(filePath, bytes, () => LogOutputCompletion(outputStopwatch));
+            if (autoExposureMode != null && spectatorReferences.AutoExposure != null)
+            {
+                spectatorReferences.AutoExposure.active = autoExposureActive;
+                spectatorReferences.AutoExposure.mode = new AutoExposureModeParameter((AutoExposureMode)autoExposureMode);
+            }
+        }
     }
 
-    private static string NewCaptureName(string? format)
+    private string NewCaptureName(string? format)
     {
         var timecode = GenerateTimecode(DateTime.Now);
         _screenshotIndex++;
@@ -147,12 +225,11 @@ internal static class Screenshotter
         MelonLogger.Msg("");
     }
 
-    private static async Task OutputScreenshot(string outputPath, int quality = 100)
+    private async Task OutputScreenshot(CaptureParams captureParams)
     {
         MelonLogger.Msg("Capturing...");
-        var format = quality == 100 ? "png" : "jpg";
 
-        // Capture the entire screen
+        // Capture the entire screen (the screen can't be read at any other size, so the requested size is ignored)
 
         var width = Screen.width;
         var height = Screen.height;
@@ -163,23 +240,8 @@ internal static class Screenshotter
         screenshotTexture.ReadPixels(new Rect(0, 0, width, height), 0, 0);
         screenshotTexture.Apply();
 
-        // Encode texture into PNG
-
-        byte[] bytes = format == "png" ? screenshotTexture.EncodeToPNG() : screenshotTexture.EncodeToJPG(quality: quality);
+        var bytes = Encode(screenshotTexture, captureParams.Quality, out var format);
         UnityEngine.Object.Destroy(screenshotTexture);
-
-        // Output to file
-
-        var outputStopwatch = new Stopwatch();
-        outputStopwatch.Start();
-
-        _screenshotIndex++;
-        Directory.CreateDirectory(outputPath);
-
-        GenerateTimecode(DateTime.Now);
-        var filePath = outputPath + $"/{NewCaptureName(format)}";
-
-        await File.WriteAllBytesAsync(filePath, bytes);
 
         // System.Windows.Forms isn't bundled with MelonLoader anymore :(
 
@@ -187,7 +249,7 @@ internal static class Screenshotter
         //    (Bitmap)((new ImageConverter()).ConvertFrom(bytes))
         //);
 
-        MelonLogger.Msg($"Screenshot saved as {filePath}!");
+        await OutputCapture(bytes, format, captureParams.OutputPath);
     }
 
     private static async Task WriteToFileAsync(string path, byte[] imageData, Action? onComplete=null)
@@ -197,7 +259,7 @@ internal static class Screenshotter
         onComplete?.Invoke();
     }
 
-    private static void PrepareCapture(float waitTime, Action callback)
+    private void PrepareCapture(float waitTime, Action callback)
     {
         if (AssetManager.CaptureTimerAudio != null)
             AudioManager.Play(AssetManager.CaptureTimerAudio);
@@ -205,7 +267,7 @@ internal static class Screenshotter
         MelonCoroutines.Start(WaitAndThenRunCallback(waitTime, callback));
     }
 
-    public static void PrepareFisheyeCapture(float waitTime, int quality, string outputPath, float resolutionScale)
+    public void PrepareFisheyeCapture(float waitTime, CaptureParams captureParams)
     {
         PrepareCapture(waitTime, DelayedCapture);
         return;
@@ -213,12 +275,12 @@ internal static class Screenshotter
         async void DelayedCapture()
         {
             if (AssetManager.CaptureStartAudio != null) AudioManager.Play(AssetManager.CaptureStartAudio);
-            await OutputFisheyeCapture(outputPath: outputPath, quality: quality, resolutionScale: resolutionScale);
+            await OutputFisheyeCapture(captureParams);
             if (AssetManager.CaptureCompleteAudio != null) AudioManager.Play(AssetManager.CaptureCompleteAudio);
         }
     }
 
-    public static void PrepareScreenshotCapture(float waitTime, int quality, string outputPath)
+    public void PrepareScreenshotCapture(float waitTime, CaptureParams captureParams)
     {
         PrepareCapture(waitTime, DelayedCapture);
         return;
@@ -226,8 +288,33 @@ internal static class Screenshotter
         async void DelayedCapture()
         {
             if (AssetManager.CaptureStartAudio != null) AudioManager.Play(AssetManager.CaptureStartAudio);
-            await OutputScreenshot(outputPath: outputPath, quality: quality);
+            await OutputScreenshot(captureParams);
             if (AssetManager.CaptureCompleteAudio != null) AudioManager.Play(AssetManager.CaptureCompleteAudio);
+        }
+    }
+    
+    public bool TrySdkCapture(Camera camera, BoneSnapPreferences preferences)
+    {
+        if (!_sdkRateLimiter.TryAcquire())
+        {
+            MelonLogger.Warning(
+                $"SDK capture hit the rate limit! ({SdkCaptureLimit}/{SdkCaptureWindowSeconds}s)");
+            return false;
+        }
+
+        RunSdkCapture();
+        return true;
+
+        async void RunSdkCapture()
+        {
+            try
+            {
+                await Capture(CaptureParams.FromPreferences(preferences, camera));
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error($"SDK capture failed: {e}");
+            }
         }
     }
 }

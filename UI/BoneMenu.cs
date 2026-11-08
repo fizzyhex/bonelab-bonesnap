@@ -12,53 +12,47 @@ internal abstract class BoneMenu
         "<color=#FFFFFF>B</color><color=#ECE7F0>o</color><color=#D9D0E1>n</color><color=#C6B9D2>e</color><color=#B3A2C3>S</color><color=#C6B9D2>n</color><color=#D9D0E1>a</color><color=#ECE7F0>p</color>";
 
     private const float ExtremeThreshold = 2f;
-
-    public static void DrawBoneMenu(BoneSnapPreferences preferences, Page? page=null)
+    
+    public static void DrawBoneMenu(BoneSnapPreferences preferences, Screenshotter screenshotter, Page? page=null)
     {
         if (page == null)
             page = Page.Root.CreatePage(GetTitle(), Color.white);
         else
             page.RemoveAll();
-
+            
         page.CreateFunction(
             "Snap!",
             Color.cyan,
             () =>
             {
+                var waitTime = preferences.MainCapturePrefs.CaptureDelay.Value;
+                var captureParams = CaptureParams.FromPreferences(preferences);
+
                 if (preferences.CaptureMode.Value == CaptureMode.Fisheye)
-                    Screenshotter.PrepareFisheyeCapture(
-                        waitTime: preferences.MainCapturePrefs.CaptureDelay.Value,
-                        quality: preferences.MainCapturePrefs.CaptureQuality.Value,
-                        outputPath: preferences.OutputPath.Value,
-                        resolutionScale: preferences.MainCapturePrefs.ResolutionScale.Value
-                    );
+                    screenshotter.PrepareFisheyeCapture(waitTime, captureParams);
                 else
-                    Screenshotter.PrepareScreenshotCapture(
-                        waitTime: preferences.MainCapturePrefs.CaptureDelay.Value,
-                        quality: preferences.MainCapturePrefs.CaptureQuality.Value,
-                        outputPath: preferences.OutputPath.Value
-                    );
+                    screenshotter.PrepareScreenshotCapture(waitTime, captureParams);
             }
         );
-
+        
         if (!Utilities.PlatformHelper.IsAndroid)
         {
             page.CreateEnum("Capture Mode", Color.white, preferences.CaptureMode.Value, value =>
             {
                 preferences.CaptureMode.Value = (CaptureMode)value;
                 preferences.ManualSave();
-                DrawBoneMenu(preferences, page);
+                DrawBoneMenu(preferences, screenshotter, page);
             });
         }
-
+            
         RenderCapturePrefs(preferences.MainCapturePrefs);
         page.CreateFunction($"Outputting to {preferences.OutputPath.Value}", Color.white, null);
 
         page.CreateFunction("Open Folder", Color.white, () =>
         {
-            if (Screenshotter.LastCaptureFileName != null)
+            if (screenshotter.LastCaptureFileName != null)
             {
-                var path = Path.Combine(preferences.GetExplorerOutputPath(), Screenshotter.LastCaptureFileName);
+                var path = Path.Combine(preferences.GetExplorerOutputPath(), screenshotter.LastCaptureFileName);
                 MelonLogger.Msg($"path: {path}");
                 Process.Start(new ProcessStartInfo
                 {
@@ -72,9 +66,9 @@ internal abstract class BoneMenu
                 Process.Start("explorer.exe", preferences.GetExplorerOutputPath());
             }
         });
-
+        
         return;
-
+            
         void RenderCapturePrefs(CapturePrefs capturePrefs)
         {
             page.CreateInt("Capture Delay", Color.white, capturePrefs.CaptureDelay.Value, 1, 0, 60, delegate (int delay)
@@ -83,11 +77,18 @@ internal abstract class BoneMenu
                 preferences.ManualSave();
             });
 
-            page.CreateInt("Capture Quality", Color.white, capturePrefs.CaptureQuality.Value, 5, 5, 100, delegate (int quality)
+            var quality = page.CreateInt("Capture Quality", Color.white, capturePrefs.CaptureQuality.Value, 5, 5, 100, delegate (int quality)
             {
                 capturePrefs.CaptureQuality.Value = quality;
                 preferences.ManualSave();
             });
+
+            // https://docs.unity3d.com/6000.4/Documentation/ScriptReference/SystemInfo-maxTextureSize.html
+            const int hardTextureLimit = 16384;
+            
+            quality.SetTooltip($"Unity has your max texture size set to: {SystemInfo.maxTextureSize}"
+                               + (SystemInfo.maxTextureSize == hardTextureLimit ? " (which is the hard limit)." : ". To go higher, you would need more system memory.")
+                               + $"\n\nCapture Device: {SystemInfo.graphicsDeviceName}.");
 
             if (preferences.CaptureMode.Value == CaptureMode.Fisheye)
             {
@@ -106,20 +107,20 @@ internal abstract class BoneMenu
             var newTitle = GetTitle();
             if (newTitle == page.Name) return;
             page.Name = newTitle;
-            DrawBoneMenu(preferences, page);
+            DrawBoneMenu(preferences, screenshotter, page);
             page.RefreshTitle();
         }
-
+        
         string ExtremeText(string input)
         {
             return $"<color=#eb4034>{input}</color>";
         }
-
+    
         bool IsExtreme()
         {
             return preferences.MainCapturePrefs.ResolutionScale.Value >= ExtremeThreshold && preferences.CaptureMode.Value == CaptureMode.Fisheye;
         }
-
+    
         string GetTitle() => IsExtreme() ? $"{GradientTitle} {ExtremeText("(EXTREME!!)")}" : GradientTitle;
     }
 }
