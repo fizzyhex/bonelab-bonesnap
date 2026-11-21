@@ -5,7 +5,9 @@ using BoneSnap.Utilities;
 using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Il2CppOccaSoftware.Exposure.Runtime;
+using BoneLib;
 using Il2CppSLZ.Bonelab.SaveData;
+using Il2CppSLZ.Marrow;
 using Il2CppSLZ.Marrow.SaveData;
 using MelonLoader;
 using UnityEngine;
@@ -19,9 +21,6 @@ internal class Screenshotter
 {
     private const float Megabyte = 1024f;
     
-    // Overrides that aren't considered 'post processing'
-    private static readonly HashSet<string> KeptVolumeOverrides = ["LensDistortion", "HBAO", "AutoExposure"];
-
     private const int SdkCaptureLimit = 5;
     private const float SdkCaptureWindowSeconds = 3;
 
@@ -48,9 +47,6 @@ internal class Screenshotter
 
     private readonly record struct RawCapture(Il2CppStructArray<byte> Pixels, GraphicsFormat Format, int Width, int Height, int Quality);
 
-    /// <summary>
-    /// Renders <see cref="CaptureParams.Camera"/> at the requested size and writes the result to the output path.
-    /// </summary>
     public async Task Capture(CaptureParams captureParams)
     {
         if (!TryRender(captureParams, out var capture))
@@ -83,6 +79,9 @@ internal class Screenshotter
 
         var (width, height) = ClampToMaxTextureSize(captureParams.Width, captureParams.Height);
 
+        var disabledAvatarArt = captureParams.ShiftHeadOffset ? DisableLocalAvatarArt() : null;
+        var hiddenRenderers = HideRigRenderers(captureParams.HideRigs);
+
         try
         {
             var stopwatch = Stopwatch.StartNew();
@@ -95,6 +94,15 @@ internal class Screenshotter
         finally
         {
             GraphicsManager.graphicsSettings.RenderScale = renderScale;
+
+            foreach (var renderer in hiddenRenderers)
+            {
+                if (renderer != null)
+                    renderer.enabled = true;
+            }
+
+            if (disabledAvatarArt != null)
+                disabledAvatarArt.enabled = true;
         }
 
         return true;
@@ -137,6 +145,8 @@ internal class Screenshotter
 
             RenderTexture.active = rt;
             captureTexture.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+
+            hud.FreezePreview(rt);
         }
         finally
         {
@@ -259,7 +269,9 @@ internal class Screenshotter
             spectatorReferences.AutoExposure.mode = new AutoExposureModeParameter(AutoExposureMode.Off);
         }
 
-        var disabledOverrides = captureParams.DisablePostProcessing ? DisablePostProcessingOverrides() : [];
+        var disabledOverrides = captureParams.DisabledVolumeComponents is { Count: > 0 } disabledComponents
+            ? DisableVolumeOverrides(disabledComponents)
+            : [];
 
         var spectatorCameraMode = spectatorSettings.SpectatorCameraMode;
         var enablingFisheye = spectatorCameraMode != SpectatorCameraMode.Fisheye;
@@ -300,7 +312,7 @@ internal class Screenshotter
         await OutputCapture(capture, captureParams.OutputPath);
     }
 
-    private static List<VolumeComponent> DisablePostProcessingOverrides()
+    private static List<VolumeComponent> DisableVolumeOverrides(IReadOnlySet<string> componentNames)
     {
         var disabledOverrides = new List<VolumeComponent>();
 
@@ -316,7 +328,7 @@ internal class Screenshotter
 
             foreach (var volumeComponent in profile.components)
             {
-                if (!volumeComponent.active || KeptVolumeOverrides.Contains(volumeComponent.GetIl2CppType().Name))
+                if (!volumeComponent.active || !componentNames.Contains(volumeComponent.GetIl2CppType().Name))
                     continue;
 
                 volumeComponent.active = false;
@@ -325,6 +337,49 @@ internal class Screenshotter
         }
 
         return disabledOverrides;
+    }
+
+    private static PlayerAvatarArt? DisableLocalAvatarArt()
+    {
+        var rigManager = Player.RigManager;
+
+        if (rigManager == null)
+            return null;
+
+        var avatarArt = rigManager.GetComponentInChildren<PlayerAvatarArt>();
+
+        if (avatarArt == null || !avatarArt.enabled)
+            return null;
+
+        avatarArt.enabled = false;
+        return avatarArt;
+    }
+
+    private static List<Renderer> HideRigRenderers(HideRigsMode mode)
+    {
+        var hiddenRenderers = new List<Renderer>();
+
+        RigManager[] rigManagers = mode switch
+        {
+            HideRigsMode.Local when Player.RigManager != null => [Player.RigManager],
+            // Includes the rigs of other players when Fusion is installed
+            HideRigsMode.All => UnityEngine.Object.FindObjectsOfType<RigManager>().ToArray(),
+            _ => []
+        };
+
+        foreach (var rigManager in rigManagers)
+        {
+            foreach (var renderer in rigManager.GetComponentsInChildren<Renderer>())
+            {
+                if (!renderer.enabled)
+                    continue;
+
+                renderer.enabled = false;
+                hiddenRenderers.Add(renderer);
+            }
+        }
+
+        return hiddenRenderers;
     }
 
     private string NewCaptureName(string? format)
@@ -363,6 +418,10 @@ internal class Screenshotter
 
         screenshotTexture.ReadPixels(new Rect(0, 0, width, height), 0, 0);
 
+        // Upload the pixels so the preview can sample them
+        screenshotTexture.Apply(false);
+        SnapHUD.GetInstance().FreezePreview(screenshotTexture);
+
         var capture = ReadRawCapture(screenshotTexture, captureParams.Quality);
         UnityEngine.Object.Destroy(screenshotTexture);
 
@@ -391,7 +450,13 @@ internal class Screenshotter
 
     public void PrepareFisheyeCapture(float waitTime, CaptureParams captureParams)
     {
-        SnapHUD.GetInstance().SwapState(new CountdownState(waitTime));
+        var spectatorReferences = _referenceCache.GetSpectatorReferences();
+
+        // The spectator camera only follows the head in fisheye mode
+        var followingHead = spectatorReferences.RigScreenOptions?.GetSettings().SpectatorCameraMode == SpectatorCameraMode.Fisheye;
+        var previewAnchor = followingHead ? null : spectatorReferences.Follower?.targetTransform;
+
+        SnapHUD.GetInstance().SwapState(new CountdownState(waitTime, spectatorReferences.Camera, previewAnchor));
         PrepareCapture(waitTime, () => RunCapture(() => OutputFisheyeCapture(captureParams)));
     }
 

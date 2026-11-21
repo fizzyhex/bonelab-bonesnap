@@ -10,9 +10,11 @@ namespace BoneSnap.SDK
     public class IdleState : ISnapHUDState
     {}
 
-    public class CountdownState(float duration) : ISnapHUDState
+    public class CountdownState(float duration, Camera? previewCamera = null, Transform? previewAnchor = null) : ISnapHUDState
     {
         public float Duration = duration;
+        public Camera? PreviewCamera = previewCamera;
+        public Transform? PreviewAnchor = previewAnchor;
     }
     
     public class EncodingInProgressState : ISnapHUDState
@@ -47,12 +49,16 @@ namespace BoneSnap.SDK
         }
         
         private TMP_Text _textMesh;
+        private PreviewQuad _preview;
         private ISnapHUDState _currentState;
         private float _stateStart;
         private float ElapsedStateTime => Time.timeSinceLevelLoad - _stateStart;
 
         private Vector3 _positionOffset = new(0, -0.3f, .7f);
         private Vector3 _rotationOffset = new(5, 0, 0);
+        private Vector3 _previewOffset = new(0, 0.11f, 0);
+
+        private static bool PreviewEnabled => Main.Prefs.ShowPreview.Value;
 
         private static SnapHUD _instance;
         
@@ -69,6 +75,9 @@ namespace BoneSnap.SDK
 
         private void Init()
         {
+            _preview = PreviewQuad.Create(transform);
+            _preview.transform.localPosition = _previewOffset;
+
             _textMesh = gameObject.AddComponent<TextMeshPro>();
             _textMesh.richText = true;
             _textMesh.fontSize = 0.3f;
@@ -90,7 +99,7 @@ namespace BoneSnap.SDK
         public void Hide() => GetInstance()?.gameObject.SetActive(false);
         public bool IsActive() => GetInstance()?.gameObject.activeSelf ?? false;
 
-        private void Update()
+        private void LateUpdate()
         {
             var head = BoneLib.Player.Head;
 
@@ -120,6 +129,17 @@ namespace BoneSnap.SDK
             {
                 _textMesh.text = debug.Text;
             }
+
+            _preview.Alpha = _currentState is EncodingInProgressState ? 1 : _textMesh.alpha;
+        }
+
+        public void FreezePreview(Texture capture)
+        {
+            if (!_textMesh)
+                Init();
+
+            if (PreviewEnabled)
+                _preview.Freeze(capture);
         }
 
         private void UpdatePosition(Transform head, float lerp)
@@ -152,6 +172,7 @@ namespace BoneSnap.SDK
                     _textMesh.enabled = false;
                     // The property is called alpha but it actually means opacity... fak you
                     _textMesh.alpha = 1;
+                    _preview.Clear();
                     break;
                 case CountdownState countdown:
                 case EncodingInProgressState encoding:
@@ -161,6 +182,15 @@ namespace BoneSnap.SDK
                     _textMesh.enabled = true;
                     TransitionIn(BoneLib.Player.Head);
                     break;
+            }
+
+            // Swap to live preview
+            if (state is CountdownState countdownState)
+            {
+                if (PreviewEnabled && countdownState.PreviewCamera is { } camera && camera)
+                    _preview.Track(camera, countdownState.PreviewAnchor);
+                else
+                    _preview.Clear();
             }
 
             _stateStart = Time.timeSinceLevelLoad;

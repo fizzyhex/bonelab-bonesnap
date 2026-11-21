@@ -17,6 +17,45 @@ public enum CaptureMode
     Fisheye
 }
     
+public enum HideRigsMode
+{
+    None,
+    Local,
+    All
+}
+
+public enum PostProcessingPreset
+{
+    Standard,
+    Minimal,
+    None,
+    Advanced
+}
+
+public readonly record struct PostProcessingEffect(string Key, string DisplayName, string[] VolumeComponents)
+{
+    // Effects the spectator camera renders
+    public static readonly PostProcessingEffect[] All =
+    [
+        new("Bloom", "Bloom", ["Bloom", "MKGlow"]),
+        new("Tonemapping", "Tonemapping", ["Tonemapping"]),
+        new("ColorGrading",
+            "Color Grading",
+            [
+                "ColorAdjustments",
+                "ColorCurves",
+                "ColorLookup",
+                "ChannelMixer",
+                "LiftGammaGain",
+                "ShadowsMidtonesHighlights",
+                "SplitToning",
+                "WhiteBalance"
+            ]),
+        new("ChromaticAberration", "Chromatic Aberration", ["ChromaticAberration"]),
+        new("Volumetrics", "Volumetrics", ["Volumetrics"])
+    ];
+}
+
 public readonly struct BoneSnapPreferences(MelonPreferences_Category category)
 {
     public readonly CapturePrefs MainCapturePrefs = new(category, "Main");
@@ -26,8 +65,41 @@ public readonly struct BoneSnapPreferences(MelonPreferences_Category category)
     public readonly MelonPreferences_Entry<CaptureMode> CaptureMode =
         category.CreateEntry("CaptureMode", BoneSnap.CaptureMode.Screen);
 
-    public readonly MelonPreferences_Entry<bool> DisablePostProcessing =
-        category.CreateEntry("DisablePostProcessing", false);
+    public readonly MelonPreferences_Entry<PostProcessingPreset> PostProcessingPreset =
+        category.CreateEntry("PostProcessingPreset", BoneSnap.PostProcessingPreset.Minimal);
+
+    public readonly MelonPreferences_Entry<bool> ShiftHeadOffset = category.CreateEntry("ShiftHeadOffset", true);
+
+    public readonly MelonPreferences_Entry<HideRigsMode> HideRigs =
+        category.CreateEntry("HideRigs", HideRigsMode.None);
+
+    public readonly MelonPreferences_Entry<bool> ShowPreview = category.CreateEntry("ShowPreview", true);
+
+    // Only used by the Advanced preset
+    public readonly Dictionary<string, MelonPreferences_Entry<bool>> PostProcessingEffects =
+        CreatePostProcessingEntries(category);
+
+    public bool IsEffectEnabled(PostProcessingEffect effect) => PostProcessingPreset.Value switch
+    {
+        BoneSnap.PostProcessingPreset.Minimal => effect.Key == "ChromaticAberration",
+        BoneSnap.PostProcessingPreset.None => false,
+        BoneSnap.PostProcessingPreset.Advanced => PostProcessingEffects[effect.Key].Value,
+        _ => true
+    };
+    
+    public HashSet<string> GetDisabledVolumeComponents()
+    {
+        var preferences = this;
+        return PostProcessingEffect.All
+            .Where(effect => !preferences.IsEffectEnabled(effect))
+            .SelectMany(effect => effect.VolumeComponents)
+            .ToHashSet();
+    }
+
+    private static Dictionary<string, MelonPreferences_Entry<bool>> CreatePostProcessingEntries(MelonPreferences_Category category)
+        => PostProcessingEffect.All.ToDictionary(
+            effect => effect.Key,
+            effect => category.CreateEntry($"PostProcessing_{effect.Key}", true));
 
     public string GetExplorerOutputPath()
     {

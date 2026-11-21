@@ -8,7 +8,9 @@ internal readonly record struct CaptureParams(
     int Height,
     int Quality,
     string OutputPath,
-    bool DisablePostProcessing = false)
+    IReadOnlySet<string>? DisabledVolumeComponents = null,
+    bool ShiftHeadOffset = false,
+    HideRigsMode HideRigs = HideRigsMode.None)
 {
     public static CaptureParams FromPreferences(BoneSnapPreferences preferences, Camera? camera = null)
     {
@@ -20,7 +22,9 @@ internal readonly record struct CaptureParams(
             Height: height,
             Quality: preferences.MainCapturePrefs.CaptureQuality.Value,
             OutputPath: preferences.OutputPath.Value,
-            DisablePostProcessing: preferences.DisablePostProcessing.Value
+            DisabledVolumeComponents: preferences.GetDisabledVolumeComponents(),
+            ShiftHeadOffset: preferences.ShiftHeadOffset.Value,
+            HideRigs: preferences.HideRigs.Value
         );
     }
 
