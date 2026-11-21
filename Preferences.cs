@@ -32,6 +32,13 @@ public enum PostProcessingPreset
     Advanced
 }
 
+public enum AccentPalette
+{
+    CatppuccinFrappe,
+    CatppuccinLatte,
+    Hex
+}
+
 public readonly record struct PostProcessingEffect(string Key, string DisplayName, string[] VolumeComponents)
 {
     // Effects the spectator camera renders
@@ -74,6 +81,17 @@ public readonly struct BoneSnapPreferences(MelonPreferences_Category category)
         category.CreateEntry("HideRigs", HideRigsMode.None);
 
     public readonly MelonPreferences_Entry<bool> ShowPreview = category.CreateEntry("ShowPreview", true);
+
+    public readonly MelonPreferences_Entry<AccentPalette> AccentPalette =
+        category.CreateEntry("AccentPalette", BoneSnap.AccentPalette.CatppuccinFrappe);
+
+    public readonly MelonPreferences_Entry<string> AccentSwatch = category.CreateEntry("AccentSwatch", Personalisation.AccentColor.DefaultSwatch);
+
+    public readonly MelonPreferences_Entry<string> AccentHex = category.CreateEntry("AccentHex", "#81C8BE");
+
+    public readonly MelonPreferences_Entry<string> KeychainBarcode = category.CreateEntry("KeychainBarcode", string.Empty);
+
+    public readonly MelonPreferences_Entry<string> KeychainAdjustments = category.CreateEntry("KeychainAdjustments", "{}");
 
     // Only used by the Advanced preset
     public readonly Dictionary<string, MelonPreferences_Entry<bool>> PostProcessingEffects =

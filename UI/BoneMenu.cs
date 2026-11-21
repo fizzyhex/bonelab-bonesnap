@@ -1,6 +1,8 @@
 ﻿using System.Diagnostics;
+using BoneLib;
 using BoneLib.BoneMenu;
 using BoneSnap.Extensions;
+using BoneSnap.Personalisation;
 using MelonLoader;
 using UnityEngine;
 
@@ -12,6 +14,10 @@ internal abstract class BoneMenu
         "<color=#FFFFFF>B</color><color=#ECE7F0>o</color><color=#D9D0E1>n</color><color=#C6B9D2>e</color><color=#B3A2C3>S</color><color=#C6B9D2>n</color><color=#D9D0E1>a</color><color=#ECE7F0>p</color>";
 
     private const float ExtremeThreshold = 2f;
+
+    private static bool _watching;
+    private static Action? _renderPersonalisation;
+    private static string? _adjustingBarcode;
     
     public static void DrawBoneMenu(BoneSnapPreferences preferences, Screenshotter screenshotter, Page? page=null)
     {
@@ -98,24 +104,196 @@ internal abstract class BoneMenu
                     preferences.ManualSave();
                     RefreshTitle();
                 });
+            }
 
-                // Post processing & rig overrides only apply to the spectator camera (fisheye)
-                var moreOptions = page.CreatePage("More Options!", Color.white);
-                RenderPostProcessingPrefs(moreOptions.CreatePage("Post Processing", Color.white));
-                RenderRigPrefs(moreOptions.CreatePage("Rig", Color.white));
+            var moreOptions = GetOrCreatePage(page, "More Options!");
+            moreOptions.RemoveAll();
+
+            // Post processing & rig overrides only apply to the spectator camera (fisheye)
+            if (preferences.CaptureMode.Value == CaptureMode.Fisheye)
+            {
+                RenderPostProcessingPrefs(GetOrCreatePage(moreOptions, "Post Processing"));
+                RenderRigPrefs(GetOrCreatePage(moreOptions, "Rig"));
 
                 moreOptions.CreateBool("Show Preview", Color.white, preferences.ShowPreview.Value, value =>
                 {
                     preferences.ShowPreview.Value = value;
                     preferences.ManualSave();
                 });
+            }
 
-                RenderOutputPath(moreOptions);
+            var personalisationPage = GetOrCreatePage(moreOptions, "Personalisation");
+            RenderPersonalisation(personalisationPage);
+            WatchPersonalisation(() => RenderPersonalisation(personalisationPage));
+
+            RenderOutputPath(moreOptions);
+        }
+
+        void RenderPersonalisation(Page personalisationPage)
+        {
+            personalisationPage.RemoveAll();
+
+            var accent = AccentColor.Current;
+            var palette = preferences.AccentPalette.Value;
+
+            personalisationPage.CreateFunction($"Palette: {AccentColor.PaletteName(palette)}", Color.white, () =>
+            {
+                preferences.AccentPalette.Value = palette switch
+                {
+                    AccentPalette.CatppuccinFrappe => AccentPalette.CatppuccinLatte,
+                    AccentPalette.CatppuccinLatte => AccentPalette.Hex,
+                    _ => AccentPalette.CatppuccinFrappe
+                };
+                OnAccentChanged();
+            });
+
+            if (palette == AccentPalette.Hex)
+            {
+                var hex = personalisationPage.CreateString("Hex", accent, preferences.AccentHex.Value, value =>
+                {
+                    if (!AccentColor.TryParseHex(value, out var color))
+                    {
+                        // Leave the last good colour in place
+                        RenderPersonalisation(personalisationPage);
+                        return;
+                    }
+
+                    preferences.AccentHex.Value = AccentColor.ToHex(color);
+                    OnAccentChanged();
+                });
+
+                hex.SetTooltip("Paste a hex colour, like #81C8BE or #FFF.");
             }
             else
             {
-                RenderOutputPath(page);
+                var swatch = Enum.TryParse<CatppuccinAccent>(preferences.AccentSwatch.Value, out var parsed)
+                    ? parsed
+                    : Enum.Parse<CatppuccinAccent>(AccentColor.DefaultSwatch);
+
+                personalisationPage.CreateEnum("Colour", accent, swatch, value =>
+                {
+                    preferences.AccentSwatch.Value = value.ToString();
+                    OnAccentChanged();
+                });
             }
+
+            RenderKeychainPrefs(personalisationPage, accent);
+        }
+
+        void RenderKeychainPrefs(Page personalisationPage, Color accent)
+        {
+            var canChange = false;
+
+            foreach (var hand in Player.HandsExist ? new[] { Player.LeftHand, Player.RightHand } : [])
+            {
+                if (!Trinkets.TryGetHeldCrate(hand, out var crate))
+                    continue;
+
+                canChange = true;
+                var barcode = crate.Barcode.ID;
+
+                personalisationPage.CreateFunction($"Change Keychain ({Trinkets.GetTitle(barcode)})", accent, () =>
+                {
+                    preferences.KeychainBarcode.Value = barcode;
+                    preferences.ManualSave();
+                });
+            }
+
+            if (!canChange)
+                personalisationPage.CreateFunction("Grab an item to select a custom keychain trinket!", Color.gray, null);
+
+            var current = preferences.KeychainBarcode.Value;
+
+            if (string.IsNullOrEmpty(current))
+                return;
+
+            var adjustPage = GetOrCreatePage(personalisationPage, "Trinket Adjust");
+
+            if (current != _adjustingBarcode || adjustPage.Elements.Count == 0)
+                RenderTrinketAdjust(adjustPage, current);
+
+            personalisationPage.CreateFunction($"Remove Keychain ({Trinkets.GetTitle(current)})", Color.white, () =>
+            {
+                preferences.KeychainBarcode.Value = string.Empty;
+                preferences.ManualSave();
+            });
+        }
+
+        void RenderTrinketAdjust(Page adjustPage, string barcode)
+        {
+            adjustPage.RemoveAll();
+            _adjustingBarcode = barcode;
+
+            var adjustment = Trinkets.GetAdjustment(preferences, barcode);
+
+            void Save()
+            {
+                Trinkets.SetAdjustment(preferences, barcode, adjustment);
+                preferences.ManualSave();
+            }
+
+            adjustPage.CreateFunction($"Adjusting {Trinkets.GetTitle(barcode)}", Color.gray, null);
+
+            adjustPage.CreateFloat("Scale", Color.white, adjustment.Scale, .1f, .1f, 5f, value =>
+            {
+                adjustment.Scale = value;
+                Save();
+            });
+
+            // Offsets are shown in centimetres, but stored in metres
+            const float cm = 100f;
+
+            adjustPage.CreateFloat("Offset X (cm)", Color.white, adjustment.OffsetX * cm, .5f, -10f, 10f, value =>
+            {
+                adjustment.OffsetX = value / cm;
+                Save();
+            });
+
+            adjustPage.CreateFloat("Offset Y (cm)", Color.white, adjustment.OffsetY * cm, .5f, -10f, 10f, value =>
+            {
+                adjustment.OffsetY = value / cm;
+                Save();
+            });
+
+            adjustPage.CreateFloat("Offset Z (cm)", Color.white, adjustment.OffsetZ * cm, .5f, -10f, 10f, value =>
+            {
+                adjustment.OffsetZ = value / cm;
+                Save();
+            });
+
+            adjustPage.CreateInt("Rotation X", Color.white, (int)adjustment.RotationX, 15, -180, 180, value =>
+            {
+                adjustment.RotationX = value;
+                Save();
+            });
+
+            adjustPage.CreateInt("Rotation Y", Color.white, (int)adjustment.RotationY, 15, -180, 180, value =>
+            {
+                adjustment.RotationY = value;
+                Save();
+            });
+
+            adjustPage.CreateInt("Rotation Z", Color.white, (int)adjustment.RotationZ, 15, -180, 180, value =>
+            {
+                adjustment.RotationZ = value;
+                Save();
+            });
+
+            adjustPage.CreateFunction("Reset", Color.white, () =>
+            {
+                Trinkets.ResetAdjustment(preferences, barcode);
+                preferences.ManualSave();
+                RenderTrinketAdjust(adjustPage, barcode);
+            });
+        }
+
+        void OnAccentChanged()
+        {
+            preferences.ManualSave();
+
+            // The title's EXTREME text follows the accent too. The page itself re-renders on the preference change.
+            if (IsExtreme())
+                DrawBoneMenu(preferences, screenshotter, page);
         }
 
         void RenderOutputPath(Page outputPage)
@@ -198,10 +376,7 @@ internal abstract class BoneMenu
             page.RefreshTitle();
         }
         
-        string ExtremeText(string input)
-        {
-            return $"<color=#eb4034>{input}</color>";
-        }
+        string ExtremeText(string input) => AccentColor.Colorize(input);
     
         bool IsExtreme()
         {
@@ -210,4 +385,39 @@ internal abstract class BoneMenu
     
         string GetTitle() => IsExtreme() ? $"{GradientTitle} {ExtremeText("(EXTREME!!)")}" : GradientTitle;
     }
+
+    private static Page GetOrCreatePage(Page parent, string name)
+    {
+        // Redraws remove the link, but the page itself lives on
+        if (parent.TryGetChildPage(name, out var existing))
+        {
+            parent.CreatePageLink(existing);
+            return existing;
+        }
+
+        return parent.CreatePage(name, Color.white);
+    }
+
+    /// <summary>
+    /// Keeps the Change Keychain buttons in sync with what the player is holding.
+    /// </summary>
+    private static void WatchPersonalisation(Action render)
+    {
+        _renderPersonalisation = render;
+
+        if (_watching)
+            return;
+
+        _watching = true;
+
+        // BoneLib raises these from postfixes on Hand.AttachObject/DetachObject, so the hand already holds (or has let go of) the item
+        Hooking.OnGrabObject += (_, _) => RefreshPersonalisation();
+        Hooking.OnReleaseObject += _ => RefreshPersonalisation();
+        Hooking.OnLevelLoaded += _ => RefreshPersonalisation();
+    }
+
+    /// <summary>
+    /// Re-renders the Personalisation page, e.g. after its preferences change.
+    /// </summary>
+    public static void RefreshPersonalisation() => _renderPersonalisation?.Invoke();
 }

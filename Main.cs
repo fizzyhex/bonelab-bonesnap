@@ -1,6 +1,7 @@
 ﻿using BoneLib;
 using MelonLoader;
 using BoneSnap.Assets;
+using BoneSnap.Personalisation;
 using BoneSnap.SDK;
 using BoneSnap.UI;
 
@@ -21,6 +22,7 @@ internal partial class Main : MelonMod
         _boneSnapPreferences = new BoneSnapPreferences(melonPreferencesCategory);
         _boneSnapPreferences.MainCapturePrefs.ResolutionScale.OnEntryValueChanged.Subscribe(
             (_, _) => SnapTaker.RefreshAllResolutionDisplays());
+        SubscribePersonalisation(_boneSnapPreferences);
 
         _referenceCache = new ReferenceCache();
         _screenshotter = new Screenshotter(_referenceCache);
@@ -29,6 +31,29 @@ internal partial class Main : MelonMod
         AssetManager.Initialize();
         base.OnInitializeMelon();
         Hooking.OnLevelUnloaded += OnLevelUnloaded;
+    }
+
+    private static void SubscribePersonalisation(BoneSnapPreferences prefs)
+    {
+        void OnAccentChanged()
+        {
+            AccentColor.Invalidate();
+            SnapPersonalisation.RefreshLocalStyles();
+            BoneMenu.RefreshPersonalisation();
+        }
+
+        void OnKeychainChanged()
+        {
+            Trinkets.Invalidate();
+            SnapPersonalisation.RefreshLocalStyles();
+            BoneMenu.RefreshPersonalisation();
+        }
+
+        prefs.AccentPalette.OnEntryValueChanged.Subscribe((_, _) => OnAccentChanged());
+        prefs.AccentSwatch.OnEntryValueChanged.Subscribe((_, _) => OnAccentChanged());
+        prefs.AccentHex.OnEntryValueChanged.Subscribe((_, _) => OnAccentChanged());
+        prefs.KeychainBarcode.OnEntryValueChanged.Subscribe((_, _) => OnKeychainChanged());
+        prefs.KeychainAdjustments.OnEntryValueChanged.Subscribe((_, _) => OnKeychainChanged());
     }
 
     private void OnLevelUnloaded()
