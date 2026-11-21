@@ -11,9 +11,6 @@ internal static class CoroutineUtils
         callback();
     }
 
-    /// <summary>
-    /// Waits for <paramref name="task"/> to finish, then runs <paramref name="callback"/> on the main thread.
-    /// </summary>
     public static IEnumerator WaitForTaskAndThenRunCallback(Task task, Action<Task> callback)
     {
         while (!task.IsCompleted)

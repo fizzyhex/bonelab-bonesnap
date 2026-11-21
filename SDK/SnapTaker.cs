@@ -16,10 +16,9 @@ namespace BoneSnap.SDK
     public class SnapTaker : MonoBehaviour
     {
 #if MELONLOADER
-        private static readonly HashSet<SnapTaker> Active = new();
-
         public SnapTaker(IntPtr intPtr) : base(intPtr) { }
-
+        
+        private static readonly HashSet<SnapTaker> Active = new();
         public Il2CppReferenceField<TMP_Text>? resolutionDisplay;
 
         public void OnEnable()

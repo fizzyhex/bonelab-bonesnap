@@ -14,6 +14,7 @@ public class ReferenceCache
     {
         public RigScreenOptions? RigScreenOptions;
         public Camera? Camera;
+        public SmoothFollower? Follower;
         public AutoExposure? AutoExposure;
         public Volume? Volume;
     }
@@ -37,6 +38,7 @@ public class ReferenceCache
         {
             RigScreenOptions = GetRigScreenOptions(),
             Camera = spectatorCamera,
+            Follower = spectatorCamera != null ? spectatorCamera.GetComponent<SmoothFollower>() : null,
             AutoExposure = _autoExposure,
             Volume = volume
         };

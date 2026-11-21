@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using BoneSnap.Assets;
+using BoneSnap.SDK;
 using BoneSnap.Utilities;
 using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
@@ -124,6 +125,11 @@ internal class Screenshotter
         
         var captureTexture = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
 
+        // Keep the HUD (e.g. the countdown) out of the capture
+        var hud = SnapHUD.GetInstance();
+        var hudWasActive = hud.IsActive();
+        hud.Hide();
+
         try
         {
             camera.targetTexture = rt;
@@ -137,6 +143,9 @@ internal class Screenshotter
             camera.targetTexture = previousTargetTexture;
             RenderTexture.active = previousActiveTexture;
             RenderTexture.ReleaseTemporary(rt);
+
+            if (hudWasActive)
+                hud.Show();
         }
 
         return captureTexture;
@@ -182,12 +191,33 @@ internal class Screenshotter
                 quality: Mathf.Min(capture.Quality + CapturePrefs.CaptureQualityIncrement, 100));
     }
 
-    private async Task OutputCapture(RawCapture capture, string outputPath)
+    /// <summary>
+    /// Encodes and writes <paramref name="capture"/> in the background. Call from the main thread!
+    /// </summary>
+    private Task OutputCapture(RawCapture capture, string outputPath)
+    {
+        Directory.CreateDirectory(outputPath);
+
+        var captureName = NewCaptureName(GetFormat(capture.Quality));
+        var output = EncodeAndWriteAsync(capture, outputPath + $"/{captureName}");
+
+        SnapHUD.GetInstance().SwapState(new EncodingInProgressState());
+        MelonCoroutines.Start(WaitForTaskAndThenRunCallback(output, OnOutputFinished));
+
+        return output;
+
+        void OnOutputFinished(Task task)
+        {
+            SnapHUD.GetInstance().SwapState(task.IsCompletedSuccessfully
+                ? new SaveCompleteState(captureName, ((Task<long>)task).Result)
+                : new IdleState());
+        }
+    }
+
+    /// <returns>The time spent encoding, in milliseconds.</returns>
+    private static async Task<long> EncodeAndWriteAsync(RawCapture capture, string filePath)
     {
         var stopwatch = Stopwatch.StartNew();
-
-        Directory.CreateDirectory(outputPath);
-        var filePath = outputPath + $"/{NewCaptureName(GetFormat(capture.Quality))}";
 
         var bytes = await EncodeAsync(capture);
         var encodeMs = stopwatch.ElapsedMilliseconds;
@@ -195,19 +225,23 @@ internal class Screenshotter
         LogFileSize(bytes, filePath);
         await WriteToFileAsync(filePath, bytes);
         LogOutputCompletion(encodeMs, stopwatch.ElapsedMilliseconds - encodeMs);
+
+        return encodeMs;
     }
 
     private async Task OutputFisheyeCapture(CaptureParams captureParams)
     {
         var spectatorReferences = _referenceCache.GetSpectatorReferences();
+        var spectatorCamera = spectatorReferences.Camera;
+        var rigScreenOptions = spectatorReferences.RigScreenOptions;
 
-        if (spectatorReferences.Camera == null)
+        if (spectatorCamera == null)
         {
             MelonLogger.Warning("Could not find the spectator camera!");
             return;
         }
 
-        if (spectatorReferences.RigScreenOptions == null)
+        if (rigScreenOptions == null)
         {
             MelonLogger.Warning("Rig screen options missing!");
             return;
@@ -217,7 +251,7 @@ internal class Screenshotter
 
         var autoExposureMode = spectatorReferences.AutoExposure?.mode.value;
         var autoExposureActive = spectatorReferences.AutoExposure == null || spectatorReferences.AutoExposure.active;
-        var spectatorSettings = spectatorReferences.RigScreenOptions.GetSettings();
+        var spectatorSettings = rigScreenOptions.GetSettings();
 
         if (spectatorReferences.AutoExposure != null)
         {
@@ -228,25 +262,30 @@ internal class Screenshotter
         var disabledOverrides = captureParams.DisablePostProcessing ? DisablePostProcessingOverrides() : [];
 
         var spectatorCameraMode = spectatorSettings.SpectatorCameraMode;
+        var enablingFisheye = spectatorCameraMode != SpectatorCameraMode.Fisheye;
 
-        if (spectatorSettings.SpectatorCameraMode != SpectatorCameraMode.Fisheye)
+        if (enablingFisheye)
         {
             MelonLogger.Msg("Fisheye is off - it will be temporarily enabled for the capture.");
-            spectatorReferences.RigScreenOptions.SetSpectatorCamera(SpectatorCameraMode.Fisheye, spectatorReferences.RigScreenOptions.eyeTarget);
+            rigScreenOptions.SetSpectatorCamera(SpectatorCameraMode.Fisheye, rigScreenOptions.eyeTarget);
+
+            // the camera will be floating off in the scene somewhere, so move it to the follower'for the capture
+            if (spectatorReferences.Follower?.targetTransform is { } followTarget)
+                spectatorCamera.transform.SetPositionAndRotation(followTarget.position, followTarget.rotation);
         }
 
         RawCapture capture;
 
         try
         {
-            if (!TryRender(captureParams with { Camera = spectatorReferences.Camera }, out capture))
+            if (!TryRender(captureParams with { Camera = spectatorCamera }, out capture))
                 return;
         }
         finally
         {
             // Clean-up & remove any overrides
 
-            spectatorReferences.RigScreenOptions.SetSpectatorCamera(spectatorCameraMode, spectatorReferences.RigScreenOptions.eyeTarget);
+            rigScreenOptions.SetSpectatorCamera(spectatorCameraMode, rigScreenOptions.eyeTarget);
 
             foreach (var volumeComponent in disabledOverrides)
                 volumeComponent.active = true;
@@ -304,7 +343,7 @@ internal class Screenshotter
         MelonLogger.Msg($"{fileSizeInMegabytes:F2} MB capture -> {filePath}...");
     }
 
-    private static void LogOutputCompletion(long encodeMs, long writeMs)
+    private static void LogOutputCompletion(float encodeMs, float writeMs)
     {
         MelonLogger.Msg(ConsoleColor.Green, $"- Saved! (encode {encodeMs} ms, write {writeMs} ms)");
         MelonLogger.Msg("");
@@ -352,6 +391,7 @@ internal class Screenshotter
 
     public void PrepareFisheyeCapture(float waitTime, CaptureParams captureParams)
     {
+        SnapHUD.GetInstance().SwapState(new CountdownState(waitTime));
         PrepareCapture(waitTime, () => RunCapture(() => OutputFisheyeCapture(captureParams)));
     }
 
