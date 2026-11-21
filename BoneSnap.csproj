@@ -91,6 +91,12 @@
       <Reference Include="UnityEngine.TLSModule">
         <HintPath>$(BONELAB_DIR)\MelonLoader\Il2CppAssemblies\UnityEngine.TLSModule.dll</HintPath>
       </Reference>
+      <Reference Include="Unity.TextMeshPro">
+        <HintPath>$(BONELAB_DIR)\MelonLoader\Il2CppAssemblies\Unity.TextMeshPro.dll</HintPath>
+      </Reference>
+      <Reference Include="UnityEngine.UI">
+        <HintPath>$(BONELAB_DIR)\MelonLoader\Il2CppAssemblies\UnityEngine.UI.dll</HintPath>
+      </Reference>
     </ItemGroup>
 
     <ItemGroup>

@@ -1,11 +1,15 @@
 ﻿using System.Diagnostics;
 using BoneSnap.Assets;
 using BoneSnap.Utilities;
+using Il2CppInterop.Runtime;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Il2CppOccaSoftware.Exposure.Runtime;
 using Il2CppSLZ.Bonelab.SaveData;
 using Il2CppSLZ.Marrow.SaveData;
 using MelonLoader;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
+using UnityEngine.Rendering;
 using static BoneSnap.CoroutineUtils;
 
 namespace BoneSnap;
@@ -14,6 +18,9 @@ internal class Screenshotter
 {
     private const float Megabyte = 1024f;
     
+    // Overrides that aren't considered 'post processing'
+    private static readonly HashSet<string> KeptVolumeOverrides = ["LensDistortion", "HBAO", "AutoExposure"];
+
     private const int SdkCaptureLimit = 5;
     private const float SdkCaptureWindowSeconds = 3;
 
@@ -38,15 +45,33 @@ internal class Screenshotter
         return datestamp + " " + timestamp;
     }
 
+    private readonly record struct RawCapture(Il2CppStructArray<byte> Pixels, GraphicsFormat Format, int Width, int Height, int Quality);
+
     /// <summary>
     /// Renders <see cref="CaptureParams.Camera"/> at the requested size and writes the result to the output path.
     /// </summary>
     public async Task Capture(CaptureParams captureParams)
     {
+        if (!TryRender(captureParams, out var capture))
+            return;
+
+        await OutputCapture(capture, captureParams.OutputPath);
+    }
+
+    /// <summary>
+    /// Renders <see cref="CaptureParams.Camera"/> and reads its pixels back synchronously.
+    /// </summary>
+    /// <remarks>
+    /// Touches the Unity API, so it must run on the main thread.
+    /// </remarks>
+    private static bool TryRender(CaptureParams captureParams, out RawCapture capture)
+    {
+        capture = default;
+
         if (captureParams.Camera == null)
         {
             MelonLogger.Warning("No camera was provided for the capture!");
-            return;
+            return false;
         }
 
         MelonLogger.Msg("Capturing...");
@@ -55,36 +80,26 @@ internal class Screenshotter
         var renderScale = GraphicsManager.graphicsSettings.RenderScale;
         GraphicsManager.graphicsSettings.RenderScale = 1;
 
-        byte[] bytes;
-        string format;
-
         var (width, height) = ClampToMaxTextureSize(captureParams.Width, captureParams.Height);
 
         try
         {
             var stopwatch = Stopwatch.StartNew();
             var captureTexture = RenderCamera(captureParams.Camera, width, height);
-            var renderMs = stopwatch.ElapsedMilliseconds;
-
-            stopwatch.Restart();
-            bytes = Encode(captureTexture, captureParams.Quality, out format);
-            var encodeMs = stopwatch.ElapsedMilliseconds;
+            capture = ReadRawCapture(captureTexture, captureParams.Quality);
             UnityEngine.Object.Destroy(captureTexture);
 
-            MelonLogger.Msg(ConsoleColor.Green, $"- Taken! (render {renderMs} ms, encode {encodeMs} ms)");
+            MelonLogger.Msg(ConsoleColor.Green, $"- Taken! (render {stopwatch.ElapsedMilliseconds} ms)");
         }
         finally
         {
             GraphicsManager.graphicsSettings.RenderScale = renderScale;
         }
 
-        await OutputCapture(bytes, format, captureParams.OutputPath);
+        return true;
     }
 
-    /// <summary>
-    /// Shrinks size within the bounds of <see cref="SystemInfo.maxTextureSize"/> while maintaing aspect ratio.
-    /// </summary>
-    private static (int Width, int Height) ClampToMaxTextureSize(int width, int height)
+    public static (int Width, int Height) ClampToMaxTextureSize(int width, int height)
     {
         var maxTextureSize = SystemInfo.maxTextureSize;
         var largestSide = Math.Max(width, height);
@@ -105,7 +120,8 @@ internal class Screenshotter
         var previousTargetTexture = camera.targetTexture;
         var previousActiveTexture = RenderTexture.active;
 
-        var rt = new RenderTexture(width, height, 24);
+        var rt = RenderTexture.GetTemporary(width, height, 24, RenderTextureFormat.Default, RenderTextureReadWrite.sRGB);
+        
         var captureTexture = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
 
         try
@@ -115,38 +131,70 @@ internal class Screenshotter
 
             RenderTexture.active = rt;
             captureTexture.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
-            captureTexture.Apply();
         }
         finally
         {
             camera.targetTexture = previousTargetTexture;
             RenderTexture.active = previousActiveTexture;
-            UnityEngine.Object.Destroy(rt);
+            RenderTexture.ReleaseTemporary(rt);
         }
 
         return captureTexture;
     }
 
-    private static byte[] Encode(Texture2D texture, int quality, out string format)
-    {
-        format = quality == 100 ? "png" : "jpg";
+    private static RawCapture ReadRawCapture(Texture2D texture, int quality)
+        => new(texture.GetRawTextureData(), texture.graphicsFormat, texture.width, texture.height, quality);
 
-        // A quality of 100 means PNG, so JPGs are bumped up a step to make full JPG quality reachable
-        return format == "png"
-            ? texture.EncodeToPNG()
-            : texture.EncodeToJPG(quality: Mathf.Min(quality + CapturePrefs.CaptureQualityIncrement, 100));
+    // Quality 100=png
+    private static string GetFormat(int quality) => quality == 100 ? "png" : "jpg";
+
+    /// <summary>
+    /// Encodes <paramref name="capture"/> on a worker thread, as encoding large captures can take seconds.
+    /// </summary>
+    private static Task<byte[]> EncodeAsync(RawCapture capture)
+    {
+        // A dedicated thread, so it can be safely attached to (and detached from) the IL2CPP domain
+        return Task.Factory.StartNew(() =>
+        {
+            var thread = IL2CPP.il2cpp_thread_attach(IL2CPP.il2cpp_domain_get());
+
+            try
+            {
+                return Encode(capture);
+            }
+            finally
+            {
+                IL2CPP.il2cpp_thread_detach(thread);
+            }
+        }, TaskCreationOptions.LongRunning);
     }
 
-    private async Task OutputCapture(byte[] bytes, string format, string outputPath)
+    private static byte[] Encode(RawCapture capture)
+    {
+        var pixels = new Il2CppSystem.Array(capture.Pixels.Pointer);
+        var width = (uint)capture.Width;
+        var height = (uint)capture.Height;
+
+        // JPGs are bumped up a step to make full JPG quality reachable
+        return GetFormat(capture.Quality) == "png"
+            ? ImageConversion.EncodeArrayToPNG(pixels, capture.Format, width, height)
+            : ImageConversion.EncodeArrayToJPG(pixels, capture.Format, width, height,
+                quality: Mathf.Min(capture.Quality + CapturePrefs.CaptureQualityIncrement, 100));
+    }
+
+    private async Task OutputCapture(RawCapture capture, string outputPath)
     {
         var stopwatch = Stopwatch.StartNew();
 
         Directory.CreateDirectory(outputPath);
-        var filePath = outputPath + $"/{NewCaptureName(format)}";
+        var filePath = outputPath + $"/{NewCaptureName(GetFormat(capture.Quality))}";
+
+        var bytes = await EncodeAsync(capture);
+        var encodeMs = stopwatch.ElapsedMilliseconds;
 
         LogFileSize(bytes, filePath);
         await WriteToFileAsync(filePath, bytes);
-        LogOutputCompletion(stopwatch.ElapsedMilliseconds);
+        LogOutputCompletion(encodeMs, stopwatch.ElapsedMilliseconds - encodeMs);
     }
 
     private async Task OutputFisheyeCapture(CaptureParams captureParams)
@@ -177,6 +225,8 @@ internal class Screenshotter
             spectatorReferences.AutoExposure.mode = new AutoExposureModeParameter(AutoExposureMode.Off);
         }
 
+        var disabledOverrides = captureParams.DisablePostProcessing ? DisablePostProcessingOverrides() : [];
+
         var spectatorCameraMode = spectatorSettings.SpectatorCameraMode;
 
         if (spectatorSettings.SpectatorCameraMode != SpectatorCameraMode.Fisheye)
@@ -185,9 +235,12 @@ internal class Screenshotter
             spectatorReferences.RigScreenOptions.SetSpectatorCamera(SpectatorCameraMode.Fisheye, spectatorReferences.RigScreenOptions.eyeTarget);
         }
 
+        RawCapture capture;
+
         try
         {
-            await Capture(captureParams with { Camera = spectatorReferences.Camera });
+            if (!TryRender(captureParams with { Camera = spectatorReferences.Camera }, out capture))
+                return;
         }
         finally
         {
@@ -195,12 +248,44 @@ internal class Screenshotter
 
             spectatorReferences.RigScreenOptions.SetSpectatorCamera(spectatorCameraMode, spectatorReferences.RigScreenOptions.eyeTarget);
 
+            foreach (var volumeComponent in disabledOverrides)
+                volumeComponent.active = true;
+
             if (autoExposureMode != null && spectatorReferences.AutoExposure != null)
             {
                 spectatorReferences.AutoExposure.active = autoExposureActive;
                 spectatorReferences.AutoExposure.mode = new AutoExposureModeParameter((AutoExposureMode)autoExposureMode);
             }
         }
+
+        await OutputCapture(capture, captureParams.OutputPath);
+    }
+
+    private static List<VolumeComponent> DisablePostProcessingOverrides()
+    {
+        var disabledOverrides = new List<VolumeComponent>();
+
+        foreach (var volume in UnityEngine.Object.FindObjectsOfType<Volume>())
+        {
+            if (!volume.isActiveAndEnabled)
+                continue;
+
+            var profile = volume.HasInstantiatedProfile() ? volume.profile : volume.sharedProfile;
+
+            if (profile == null)
+                continue;
+
+            foreach (var volumeComponent in profile.components)
+            {
+                if (!volumeComponent.active || KeptVolumeOverrides.Contains(volumeComponent.GetIl2CppType().Name))
+                    continue;
+
+                volumeComponent.active = false;
+                disabledOverrides.Add(volumeComponent);
+            }
+        }
+
+        return disabledOverrides;
     }
 
     private string NewCaptureName(string? format)
@@ -219,9 +304,9 @@ internal class Screenshotter
         MelonLogger.Msg($"{fileSizeInMegabytes:F2} MB capture -> {filePath}...");
     }
 
-    private static void LogOutputCompletion(long elapsedMs)
+    private static void LogOutputCompletion(long encodeMs, long writeMs)
     {
-        MelonLogger.Msg(ConsoleColor.Green, $"- Saved! ({elapsedMs} ms)");
+        MelonLogger.Msg(ConsoleColor.Green, $"- Saved! (encode {encodeMs} ms, write {writeMs} ms)");
         MelonLogger.Msg("");
     }
 
@@ -233,14 +318,13 @@ internal class Screenshotter
 
         var width = Screen.width;
         var height = Screen.height;
-        var screenshotTexture = new Texture2D(width, height);
+        var screenshotTexture = new Texture2D(width, height, TextureFormat.RGB24, false);
 
         // Read screen contents into the texture
 
         screenshotTexture.ReadPixels(new Rect(0, 0, width, height), 0, 0);
-        screenshotTexture.Apply();
 
-        var bytes = Encode(screenshotTexture, captureParams.Quality, out var format);
+        var capture = ReadRawCapture(screenshotTexture, captureParams.Quality);
         UnityEngine.Object.Destroy(screenshotTexture);
 
         // System.Windows.Forms isn't bundled with MelonLoader anymore :(
@@ -249,7 +333,7 @@ internal class Screenshotter
         //    (Bitmap)((new ImageConverter()).ConvertFrom(bytes))
         //);
 
-        await OutputCapture(bytes, format, captureParams.OutputPath);
+        await OutputCapture(capture, captureParams.OutputPath);
     }
 
     private static async Task WriteToFileAsync(string path, byte[] imageData)
@@ -268,26 +352,30 @@ internal class Screenshotter
 
     public void PrepareFisheyeCapture(float waitTime, CaptureParams captureParams)
     {
-        PrepareCapture(waitTime, DelayedCapture);
-        return;
-
-        async void DelayedCapture()
-        {
-            if (AssetManager.CaptureStartAudio != null) AudioManager.Play(AssetManager.CaptureStartAudio);
-            await OutputFisheyeCapture(captureParams);
-            if (AssetManager.CaptureCompleteAudio != null) AudioManager.Play(AssetManager.CaptureCompleteAudio);
-        }
+        PrepareCapture(waitTime, () => RunCapture(() => OutputFisheyeCapture(captureParams)));
     }
 
     public void PrepareScreenshotCapture(float waitTime, CaptureParams captureParams)
     {
-        PrepareCapture(waitTime, DelayedCapture);
+        PrepareCapture(waitTime, () => RunCapture(() => OutputScreenshot(captureParams)));
+    }
+
+    private static void RunCapture(Func<Task> capture)
+    {
+        if (AssetManager.CaptureStartAudio != null) AudioManager.Play(AssetManager.CaptureStartAudio);
+
+        // Awaiting resumes off the main thread, play completion audio from a coroutine
+        MelonCoroutines.Start(WaitForTaskAndThenRunCallback(capture(), OnCaptureFinished));
         return;
 
-        async void DelayedCapture()
+        static void OnCaptureFinished(Task task)
         {
-            if (AssetManager.CaptureStartAudio != null) AudioManager.Play(AssetManager.CaptureStartAudio);
-            await OutputScreenshot(captureParams);
+            if (task.IsFaulted)
+            {
+                MelonLogger.Error($"Capture failed: {task.Exception}");
+                return;
+            }
+
             if (AssetManager.CaptureCompleteAudio != null) AudioManager.Play(AssetManager.CaptureCompleteAudio);
         }
     }

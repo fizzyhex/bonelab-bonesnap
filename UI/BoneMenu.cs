@@ -99,6 +99,12 @@ internal abstract class BoneMenu
                     preferences.ManualSave();
                     RefreshTitle();
                 });
+
+                page.CreateBool("Disable Post Processing", Color.white, preferences.DisablePostProcessing.Value, value =>
+                {
+                    preferences.DisablePostProcessing.Value = value;
+                    preferences.ManualSave();
+                });
             }
         }
 

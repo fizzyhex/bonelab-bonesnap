@@ -25,7 +25,10 @@ public readonly struct BoneSnapPreferences(MelonPreferences_Category category)
 
     public readonly MelonPreferences_Entry<CaptureMode> CaptureMode =
         category.CreateEntry("CaptureMode", BoneSnap.CaptureMode.Screen);
-        
+
+    public readonly MelonPreferences_Entry<bool> DisablePostProcessing =
+        category.CreateEntry("DisablePostProcessing", false);
+
     public string GetExplorerOutputPath()
     {
         var path = OutputPath.Value.StartsWith("UserData/")

@@ -1,6 +1,7 @@
 ﻿using BoneLib;
 using MelonLoader;
 using BoneSnap.Assets;
+using BoneSnap.SDK;
 using BoneSnap.UI;
 
 namespace BoneSnap;
@@ -18,6 +19,8 @@ internal partial class Main : MelonMod
     {
         var melonPreferencesCategory = MelonPreferences.CreateCategory("BoneSnap");
         _boneSnapPreferences = new BoneSnapPreferences(melonPreferencesCategory);
+        _boneSnapPreferences.MainCapturePrefs.ResolutionScale.OnEntryValueChanged.Subscribe(
+            (_, _) => SnapTaker.RefreshAllResolutionDisplays());
 
         _referenceCache = new ReferenceCache();
         _screenshotter = new Screenshotter(_referenceCache);
