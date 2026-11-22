@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using BoneLib;
 using BoneLib.BoneMenu;
+using BoneSnap.Capture;
 using BoneSnap.Extensions;
 using BoneSnap.Personalisation;
 using MelonLoader;
@@ -37,7 +38,7 @@ internal abstract class BoneMenu
                 if (preferences.CaptureMode.Value == CaptureMode.Fisheye)
                     screenshotter.PrepareFisheyeCapture(waitTime, captureParams);
                 else
-                    screenshotter.PrepareScreenshotCapture(waitTime, captureParams);
+                    screenshotter.PrepareScreenCapture(waitTime, captureParams);
             }
         );
         
@@ -106,7 +107,7 @@ internal abstract class BoneMenu
                 });
             }
 
-            var moreOptions = GetOrCreatePage(page, "More Options!");
+            var moreOptions = GetOrCreatePage(page, $"More {preferences.CaptureMode.Value} Options!");
             moreOptions.RemoveAll();
 
             // Post processing & rig overrides only apply to the spectator camera (fisheye)

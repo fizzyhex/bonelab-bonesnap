@@ -10,11 +10,13 @@ namespace BoneSnap.SDK
     public class IdleState : ISnapHUDState
     {}
 
-    public class CountdownState(float duration, Camera? previewCamera = null, Transform? previewAnchor = null) : ISnapHUDState
+    public class CountdownState(float duration, Camera? previewCamera = null, Transform? previewAnchor = null, bool previewScreen = false) : ISnapHUDState
     {
         public float Duration = duration;
         public Camera? PreviewCamera = previewCamera;
         public Transform? PreviewAnchor = previewAnchor;
+        // Preview the game window instead of PreviewCamera
+        public bool PreviewScreen = previewScreen;
     }
     
     public class EncodingInProgressState : ISnapHUDState
@@ -110,7 +112,7 @@ namespace BoneSnap.SDK
             if (_currentState is CountdownState countdown)
             {
                 countdown.Duration -= Time.deltaTime;
-                _textMesh.text = $"{countdown.Duration:0.00}";
+                _textMesh.text = $"{Mathf.Max(countdown.Duration, 0):0.00}";
             }
             else if (_currentState is EncodingInProgressState)
             {
@@ -135,6 +137,9 @@ namespace BoneSnap.SDK
             _preview.Alpha = _currentState is EncodingInProgressState ? 1 : _textMesh.alpha;
         }
 
+        /// <summary>
+        /// Freezes the preview on the provided texture, preventing it from updating until cleared.
+        /// </summary>
         public void FreezePreview(Texture capture)
         {
             if (!_textMesh)
@@ -189,7 +194,11 @@ namespace BoneSnap.SDK
             // Swap to live preview
             if (state is CountdownState countdownState)
             {
-                if (PreviewEnabled && countdownState.PreviewCamera is { } camera && camera)
+                if (!PreviewEnabled)
+                    _preview.Clear();
+                else if (countdownState.PreviewScreen)
+                    _preview.TrackScreen();
+                else if (countdownState.PreviewCamera is { } camera && camera)
                     _preview.Track(camera, countdownState.PreviewAnchor);
                 else
                     _preview.Clear();

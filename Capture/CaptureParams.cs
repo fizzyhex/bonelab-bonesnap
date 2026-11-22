@@ -1,8 +1,8 @@
 using UnityEngine;
 
-namespace BoneSnap;
+namespace BoneSnap.Capture;
 
-internal readonly record struct CaptureParams(
+public readonly record struct CaptureParams(
     Camera? Camera,
     int Width,
     int Height,
@@ -24,7 +24,6 @@ internal readonly record struct CaptureParams(
             Quality: preferences.MainCapturePrefs.CaptureQuality.Value,
             OutputPath: preferences.OutputPath.Value,
             DisabledVolumeComponents: preferences.GetDisabledVolumeComponents(),
-            ShiftHeadOffset: preferences.ShiftHeadOffset.Value,
             RevealMeshes: preferences.RevealMeshes.Value,
             HideRigs: preferences.HideRigs.Value
         );

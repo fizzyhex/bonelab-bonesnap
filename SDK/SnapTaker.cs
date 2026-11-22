@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+﻿using BoneSnap.Capture;
+using UnityEngine;
 #if MELONLOADER
 using Il2CppInterop.Runtime.Attributes;
 using Il2CppInterop.Runtime.InteropTypes.Fields;

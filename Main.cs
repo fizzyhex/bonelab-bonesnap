@@ -1,6 +1,7 @@
 ﻿using BoneLib;
 using MelonLoader;
 using BoneSnap.Assets;
+using BoneSnap.Capture;
 using BoneSnap.Personalisation;
 using BoneSnap.SDK;
 using BoneSnap.UI;
