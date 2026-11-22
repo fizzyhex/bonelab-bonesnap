@@ -35,10 +35,10 @@ public enum RevealMeshesMode
 
 public enum PostProcessingPreset
 {
-    Standard,
+    Fisheye,
     Minimal,
-    None,
-    Advanced
+    MatchHeadset,
+    Custom
 }
 
 public enum AccentPalette
@@ -68,7 +68,10 @@ public readonly record struct PostProcessingEffect(string Key, string DisplayNam
                 "WhiteBalance"
             ]),
         new("ChromaticAberration", "Chromatic Aberration", ["ChromaticAberration"]),
-        new("Volumetrics", "Volumetrics", ["Volumetrics"])
+        new("Volumetrics", "Volumetrics", ["Volumetrics"]),
+        new("AutoExposure", "Auto Exposure", ["AutoExposure"]),
+        new("LensDistortion", "Lens Distortion", ["LensDistortion"]),
+        new("AmbientOcclusion", "Ambient Occlusion", ["HBAO"])
     ];
 }
 
@@ -111,9 +114,9 @@ public readonly struct BoneSnapPreferences(MelonPreferences_Category category)
 
     public bool IsEffectEnabled(PostProcessingEffect effect) => PostProcessingPreset.Value switch
     {
-        BoneSnap.PostProcessingPreset.Minimal => effect.Key == "ChromaticAberration",
-        BoneSnap.PostProcessingPreset.None => false,
-        BoneSnap.PostProcessingPreset.Advanced => PostProcessingEffects[effect.Key].Value,
+        BoneSnap.PostProcessingPreset.Minimal => effect.Key is not "LensDistortion",
+        BoneSnap.PostProcessingPreset.MatchHeadset => effect.Key is not ("LensDistortion" or "ChromaticAberration" or "AutoExposure"),
+        BoneSnap.PostProcessingPreset.Custom => PostProcessingEffects[effect.Key].Value,
         _ => true
     };
     

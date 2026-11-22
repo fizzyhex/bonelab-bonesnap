@@ -23,8 +23,9 @@ internal static class ScreenCopy
     public static void BlitUpright(Texture source, RenderTexture destination)
     {
         if (SystemInfo.graphicsUVStartsAtTop)
-            Graphics.Blit(source, destination, new Vector2(1, -1), new Vector2(0, 1));
-        else
             Graphics.Blit(source, destination);
+        
+        else
+            Graphics.Blit(source, destination, new Vector2(1, -1), new Vector2(0, 1));
     }
 }

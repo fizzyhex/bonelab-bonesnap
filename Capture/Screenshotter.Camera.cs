@@ -1,7 +1,6 @@
 using System.Collections;
 using System.Diagnostics;
 using BoneSnap.SDK;
-using Il2CppOccaSoftware.Exposure.Runtime;
 using Il2CppSLZ.Bonelab.SaveData;
 using Il2CppSLZ.Marrow.SaveData;
 using MelonLoader;
@@ -54,7 +53,7 @@ internal partial class Screenshotter
     }
 
     /// <summary>
-    /// Renders the spectator camera in fisheye mode with auto exposure and the configured volume components disabled.
+    /// Renders the spectator camera in fisheye mode with the configured volume components disabled.
     /// </summary>
     private IEnumerator CaptureFisheye(CaptureParams captureParams, CaptureResult result)
     {
@@ -74,15 +73,7 @@ internal partial class Screenshotter
             yield break;
         }
 
-        var autoExposureMode = spectatorReferences.AutoExposure?.mode.value;
-        var autoExposureActive = spectatorReferences.AutoExposure == null || spectatorReferences.AutoExposure.active;
         var spectatorSettings = rigScreenOptions.GetSettings();
-
-        if (spectatorReferences.AutoExposure != null)
-        {
-            spectatorReferences.AutoExposure.active = false;
-            spectatorReferences.AutoExposure.mode = new AutoExposureModeParameter(AutoExposureMode.Off);
-        }
 
         var disabledOverrides = captureParams.DisabledVolumeComponents is { Count: > 0 } disabledComponents
             ? DisableVolumeOverrides(disabledComponents)
@@ -109,17 +100,10 @@ internal partial class Screenshotter
         }
         finally
         {
-
             rigScreenOptions.SetSpectatorCamera(spectatorCameraMode, rigScreenOptions.eyeTarget);
 
             foreach (var volumeComponent in disabledOverrides)
                 volumeComponent.active = true;
-
-            if (autoExposureMode != null && spectatorReferences.AutoExposure != null)
-            {
-                spectatorReferences.AutoExposure.active = autoExposureActive;
-                spectatorReferences.AutoExposure.mode = new AutoExposureModeParameter((AutoExposureMode)autoExposureMode);
-            }
         }
     }
 
@@ -196,12 +180,17 @@ internal partial class Screenshotter
     {
         var previousTargetTexture = camera.targetTexture;
 
-        var rt = RenderTexture.GetTemporary(width, height, 24, RenderTextureFormat.Default, RenderTextureReadWrite.sRGB);
+        // Auto exposure multiplies gamma-encoded colours when the camera targets an sRGB texture, which blows out
+        // the image compared to the game window. So we have to render as linear, then encode to sRGB with a blit
+
+        var linearTexture = RenderTexture.GetTemporary(width, height, 24, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear);
+        var rt = RenderTexture.GetTemporary(width, height, 0, RenderTextureFormat.Default, RenderTextureReadWrite.sRGB);
 
         try
         {
-            camera.targetTexture = rt;
+            camera.targetTexture = linearTexture;
             camera.Render();
+            Graphics.Blit(linearTexture, rt);
 
             var captureTexture = ReadPixels(rt);
             SnapHUD.GetInstance().FreezePreview(rt);
@@ -211,6 +200,7 @@ internal partial class Screenshotter
         finally
         {
             camera.targetTexture = previousTargetTexture;
+            RenderTexture.ReleaseTemporary(linearTexture);
             RenderTexture.ReleaseTemporary(rt);
         }
     }

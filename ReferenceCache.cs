@@ -1,5 +1,4 @@
-﻿using Il2CppOccaSoftware.Exposure.Runtime;
-using Il2CppSLZ.Bonelab;
+﻿using Il2CppSLZ.Bonelab;
 using UnityEngine;
 using UnityEngine.Rendering;
 using Object = UnityEngine.Object;
@@ -15,13 +14,11 @@ public class ReferenceCache
         public RigScreenOptions? RigScreenOptions;
         public Camera? Camera;
         public SmoothFollower? Follower;
-        public AutoExposure? AutoExposure;
         public Volume? Volume;
     }
     
     private RigScreenOptions? _rigScreenOptions;
     private SpectatorReferences? _spectatorReferences;
-    private AutoExposure? _autoExposure;
     
     public SpectatorReferences GetSpectatorReferences()
     {
@@ -31,15 +28,12 @@ public class ReferenceCache
         var rigScreenOptions = GetRigScreenOptions();
         var spectatorCamera = rigScreenOptions != null ? GetSpectatorCamera(rigScreenOptions) : null;
         var volume = spectatorCamera != null ? GetVolume(spectatorCamera) : null;
-        
-        volume?.profile?.TryGet(out _autoExposure);
 
         _spectatorReferences = new SpectatorReferences
         {
             RigScreenOptions = GetRigScreenOptions(),
             Camera = spectatorCamera,
             Follower = spectatorCamera != null ? spectatorCamera.GetComponent<SmoothFollower>() : null,
-            AutoExposure = _autoExposure,
             Volume = volume
         };
         
@@ -66,6 +60,5 @@ public class ReferenceCache
     {
         _rigScreenOptions = null;
         _spectatorReferences = null;
-        _autoExposure = null;
     }
 }

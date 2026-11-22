@@ -1,6 +1,7 @@
 using System.Globalization;
 using BoneLib;
 using BoneSnap.SDK;
+using Il2CppSLZ.Bonelab;
 using Il2CppSLZ.Marrow;
 using Il2CppSLZ.Marrow.Interaction;
 using Il2CppSLZ.Marrow.Pool;
@@ -170,6 +171,58 @@ internal static class Trinkets
 
         crate = poolee.SpawnableCrate;
         return true;
+    }
+
+    public static bool TryGetSpawnGunCrate(Hand? hand, out SpawnableCrate crate)
+    {
+        crate = null!;
+
+        if (hand == null || !Player.HandsExist)
+            return false;
+
+        var spawnGun = Player.GetComponentInHand<SpawnGun>(hand);
+        var selected = spawnGun == null ? null : spawnGun._selectedCrate;
+
+        if (selected == null)
+            return false;
+
+        crate = selected;
+        return true;
+    }
+
+    public static List<string> GetClipboardBarcodes()
+    {
+        // i dont know why anyone would copy more than 1. but this catches trailing newlines,
+        // and may be useful to someone.
+        const int maxBarcodes = 8;
+
+        string clipboard;
+
+        try
+        {
+            clipboard = GUIUtility.systemCopyBuffer ?? string.Empty;
+        }
+        catch (Exception)
+        {
+            return [];
+        }
+
+        var barcodes = new List<string>();
+
+        foreach (var line in clipboard.Split('\n'))
+        {
+            var barcode = line.Trim();
+
+            if (barcode.Length == 0 || barcodes.Contains(barcode) || !TryGetCrate(barcode, out _))
+                continue;
+
+            barcodes.Add(barcode);
+
+            if (barcodes.Count >= maxBarcodes)
+                break;
+        }
+
+        return barcodes;
     }
 
     public static string GetTitle(string barcode)

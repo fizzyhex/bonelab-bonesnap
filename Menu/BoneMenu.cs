@@ -18,6 +18,7 @@ internal abstract class BoneMenu
 
     private static bool _watching;
     private static Action? _renderPersonalisation;
+    private static Page? _personalisationPage;
     private static string? _adjustingBarcode;
     private static readonly Dictionary<(Page Parent, string Name), Page> ChildPages = new();
     
@@ -103,7 +104,7 @@ internal abstract class BoneMenu
 
             var personalisationPage = GetOrCreatePage(moreOptions, "Personalisation");
             RenderPersonalisation(personalisationPage);
-            WatchPersonalisation(() => RenderPersonalisation(personalisationPage));
+            WatchPersonalisation(personalisationPage, () => RenderPersonalisation(personalisationPage));
 
             RenderOutputPath(moreOptions);
         }
@@ -163,21 +164,20 @@ internal abstract class BoneMenu
         void RenderKeychainPrefs(Page personalisationPage, Color accent)
         {
             var canChange = false;
+            var hands = Player.HandsExist ? new[] { Player.LeftHand, Player.RightHand } : [];
+            var spawnGunBarcodes = new List<string>();
 
-            foreach (var hand in Player.HandsExist ? new[] { Player.LeftHand, Player.RightHand } : [])
+            foreach (var hand in hands)
             {
-                if (!Trinkets.TryGetHeldCrate(hand, out var crate))
-                    continue;
+                if (Trinkets.TryGetHeldCrate(hand, out var crate))
+                    CreateChangeKeychain(crate.Barcode.ID);
 
-                canChange = true;
-                var barcode = crate.Barcode.ID;
-
-                personalisationPage.CreateFunction($"Change Keychain ({Trinkets.GetTitle(barcode)})", accent, () =>
-                {
-                    preferences.KeychainBarcode.Value = barcode;
-                    preferences.ManualSave();
-                });
+                if (Trinkets.TryGetSpawnGunCrate(hand, out var selected) && !spawnGunBarcodes.Contains(selected.Barcode.ID))
+                    spawnGunBarcodes.Add(selected.Barcode.ID);
             }
+
+            CreateBarcodeSection("From your Spawn Gun...", spawnGunBarcodes);
+            CreateBarcodeSection("From your clipboard...", Trinkets.GetClipboardBarcodes());
 
             var current = preferences.KeychainBarcode.Value;
             var nothingSelected = string.IsNullOrEmpty(current);
@@ -200,6 +200,30 @@ internal abstract class BoneMenu
                 preferences.KeychainBarcode.Value = string.Empty;
                 preferences.ManualSave();
             });
+
+            return;
+
+            void CreateBarcodeSection(string label, List<string> barcodes)
+            {
+                if (barcodes.Count == 0)
+                    return;
+
+                personalisationPage.CreateLabel(label);
+
+                foreach (var barcode in barcodes)
+                    CreateChangeKeychain(barcode);
+            }
+
+            void CreateChangeKeychain(string barcode)
+            {
+                canChange = true;
+
+                personalisationPage.CreateFunction($"Change Keychain ({Trinkets.GetTitle(barcode)})", accent, () =>
+                {
+                    preferences.KeychainBarcode.Value = barcode;
+                    preferences.ManualSave();
+                });
+            }
         }
 
         void RenderTrinketAdjust(Page adjustPage, string barcode)
@@ -361,13 +385,13 @@ internal abstract class BoneMenu
 
             preset.SetTooltip(preferences.PostProcessingPreset.Value switch
             {
-                PostProcessingPreset.Minimal => "All effects off, excluding Chromatic Aberration.",
-                PostProcessingPreset.None => "No post processing.",
-                PostProcessingPreset.Advanced => "Tweak individual settings, if you want that for some reason I guess!",
+                PostProcessingPreset.Minimal => "The spectator camera's look, without Lens Distortion.",
+                PostProcessingPreset.MatchHeadset => "Matches the player's view, without the spectator camera's own effects.",
+                PostProcessingPreset.Custom => "Tweak individual settings, if you're a nerd :P",
                 _ => "Default look of Bonelab's spectator camera."
             });
 
-            if (preferences.PostProcessingPreset.Value != PostProcessingPreset.Advanced)
+            if (preferences.PostProcessingPreset.Value != PostProcessingPreset.Custom)
                 return;
 
             foreach (var effect in PostProcessingEffect.All)
@@ -418,10 +442,11 @@ internal abstract class BoneMenu
     }
 
     /// <summary>
-    /// Keeps the Change Keychain buttons in sync with what the player is holding.
+    /// Keeps the Change Keychain buttons in sync with what the player is holding, and their clipboard.
     /// </summary>
-    private static void WatchPersonalisation(Action render)
+    private static void WatchPersonalisation(Page page, Action render)
     {
+        _personalisationPage = page;
         _renderPersonalisation = render;
 
         if (_watching)
@@ -432,6 +457,13 @@ internal abstract class BoneMenu
         Hooking.OnGrabObject += (_, _) => BeginRefresh();
         Hooking.OnReleaseObject += _ => BeginRefresh();
         Hooking.OnLevelLoaded += _ => BeginRefresh();
+
+        // The clipboard & spawn gun selection can change without a grab
+        BoneLib.BoneMenu.Menu.OnPageOpened += opened =>
+        {
+            if (opened == _personalisationPage)
+                BeginRefresh();
+        };
 
         return;
         
