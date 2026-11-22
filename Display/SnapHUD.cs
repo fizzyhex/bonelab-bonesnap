@@ -93,6 +93,8 @@ namespace BoneSnap.SDK
             }
             else
                 MelonLogger.Warning("Failed to locate TMP_FontAsset! Falling back to the default TextMeshPro font.");
+
+            PreviewQuad.DrawOnTop(_textMesh.fontMaterial);
         }
 
         public void Show() => GetInstance()?.gameObject.SetActive(true);

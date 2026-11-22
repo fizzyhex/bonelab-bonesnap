@@ -290,10 +290,8 @@ internal abstract class BoneMenu
         void OnAccentChanged()
         {
             preferences.ManualSave();
-
-            // The title's EXTREME text follows the accent too. The page itself re-renders on the preference change.
-            if (IsExtreme())
-                DrawBoneMenu(preferences, screenshotter, page);
+            // Redraw the menu for anything reliant on accent for theming
+            DrawBoneMenu(preferences, screenshotter, page);
         }
 
         void RenderOutputPath(Page outputPage)
@@ -308,7 +306,24 @@ internal abstract class BoneMenu
             });
 
             shiftHeadOffset.SetTooltip("Bonelab shifts your avatar's head back during gameplay to prevent it from clipping your view in VR. " +
-                                       "This disables the PlayerAvatarArt script on your rig on the frame the capture is taken to fix that.");
+                                       "This disables the PlayerAvatarArt script on your rig for the capture to fix that.");
+
+            FunctionElement? revealMeshes = null;
+            revealMeshes = rigPage.CreateFunction(GetRevealMeshesName(), Color.white, () =>
+            {
+                preferences.RevealMeshes.Value = preferences.RevealMeshes.Value switch
+                {
+                    RevealMeshesMode.HeadAndHair => RevealMeshesMode.Head,
+                    RevealMeshesMode.Head => RevealMeshesMode.Hair,
+                    RevealMeshesMode.Hair => RevealMeshesMode.None,
+                    _ => RevealMeshesMode.HeadAndHair
+                };
+                preferences.ManualSave();
+                revealMeshes!.ElementName = GetRevealMeshesName();
+            });
+
+            revealMeshes.SetTooltip("Bonelab also hides your avatar's head and hair during gameplay to prevent it from clipping your view in VR. " +
+                                    "This shows the selected meshes on the frame the capture is taken.");
 
             // A function rather than an enum, as enum elements can only show the raw value names
             FunctionElement? hideRigs = null;
@@ -325,6 +340,14 @@ internal abstract class BoneMenu
             });
 
             hideRigs.SetTooltip("Hides RigManagers on the frame of capture.");
+
+            string GetRevealMeshesName() => "Reveal Meshes: " + preferences.RevealMeshes.Value switch
+            {
+                RevealMeshesMode.Head => "Head",
+                RevealMeshesMode.Hair => "Hair",
+                RevealMeshesMode.HeadAndHair => "Head & Hair",
+                _ => "None"
+            };
 
             string GetHideRigsName() => "Hide Rigs: " + preferences.HideRigs.Value switch
             {
@@ -409,8 +432,7 @@ internal abstract class BoneMenu
             return;
 
         _watching = true;
-
-        // BoneLib raises these from postfixes on Hand.AttachObject/DetachObject, so the hand already holds (or has let go of) the item
+        
         Hooking.OnGrabObject += (_, _) => RefreshPersonalisation();
         Hooking.OnReleaseObject += _ => RefreshPersonalisation();
         Hooking.OnLevelLoaded += _ => RefreshPersonalisation();

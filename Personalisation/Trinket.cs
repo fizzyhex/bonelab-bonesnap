@@ -21,11 +21,12 @@ internal readonly record struct TrinketSpec(string Barcode, float Scale, Vector3
     public bool IsEmpty => string.IsNullOrEmpty(Barcode);
 
     /// <summary>
-    /// <c>barcode|scale|x,y,z|x,y,z</c> - compact enough to sync over Fusion. Empty for <see cref="None"/>.
+    /// Serializes a value for Fusion RPC sync.
+    /// <c>barcode|scale|x,y,z|x,y,z</c> 
     /// </summary>
     public string Serialize() => IsEmpty
         ? string.Empty
-        : string.Join('|', Barcode, F(Scale), V(Offset), V(Rotation));
+        : string.Join('|', Barcode, SerFloat(Scale), SerVector(Offset), SerVector(Rotation));
 
     public static bool TryParse(string? value, out TrinketSpec spec)
     {
@@ -36,33 +37,44 @@ internal readonly record struct TrinketSpec(string Barcode, float Scale, Vector3
 
         var parts = value.Split('|');
 
-        if (parts.Length != 4 || !TryF(parts[1], out var scale) || !TryV(parts[2], out var offset) || !TryV(parts[3], out var rotation))
+        if (parts.Length != 4 ||
+            !TryDesFloat(parts[1],
+                out var scale) ||
+            !TryDesVector(parts[2],
+                out var offset) ||
+            !TryDesVector(parts[3],
+                out var rotation))
             return false;
 
         spec = new TrinketSpec(parts[0], scale, offset, rotation);
         return true;
     }
 
-    private static string F(float value) => value.ToString("0.####", CultureInfo.InvariantCulture);
-    private static string V(Vector3 v) => $"{F(v.x)},{F(v.y)},{F(v.z)}";
+    private static string SerFloat(float value) => value.ToString("0.####", CultureInfo.InvariantCulture);
+    private static string SerVector(Vector3 v) => $"{SerFloat(v.x)},{SerFloat(v.y)},{SerFloat(v.z)}";
 
-    private static bool TryF(string value, out float result)
+    private static bool TryDesFloat(string value, out float result)
         => float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out result);
 
-    private static bool TryV(string value, out Vector3 result)
+    private static bool TryDesVector(string value, out Vector3 result)
     {
         result = default;
         var parts = value.Split(',');
-        if (parts.Length != 3 || !TryF(parts[0], out var x) || !TryF(parts[1], out var y) || !TryF(parts[2], out var z))
+        
+        if (parts.Length != 3 ||
+            !TryDesFloat(parts[0],
+                out var x) ||
+            !TryDesFloat(parts[1],
+                out var y) ||
+            !TryDesFloat(parts[2],
+                out var z))
             return false;
+        
         result = new Vector3(x, y, z);
         return true;
     }
 }
 
-/// <summary>
-/// The player's fine-tuning of one trinket, remembered per barcode.
-/// </summary>
 internal sealed class TrinketAdjustment
 {
     public float Scale { get; set; } = 1f;
@@ -89,7 +101,7 @@ internal static class Trinkets
     private static string? _localSpec;
 
     /// <summary>
-    /// The local player's trinket, serialized as a <see cref="TrinketSpec"/>.
+    /// The local player's trinket
     /// </summary>
     public static string LocalSpec => _localSpec ??= GetSpec(Main.Prefs, Main.Prefs.KeychainBarcode.Value).Serialize();
 
@@ -135,13 +147,10 @@ internal static class Trinkets
         }
         catch (JsonException)
         {
-            return new();
+            return new Dictionary<string, TrinketAdjustment>();
         }
     }
-
-    /// <summary>
-    /// Finds the spawnable held in a hand, if it can become a trinket.
-    /// </summary>
+    
     public static bool TryGetHeldCrate(Hand? hand, out SpawnableCrate crate)
     {
         crate = null!;
@@ -150,10 +159,12 @@ internal static class Trinkets
             return false;
 
         var held = Player.GetObjectInHand(hand);
-        var poolee = held == null ? null : held.GetComponentInParent<Poolee>();
+
+        if (!Poolee.Cache.TryGet(held, out var poolee))
+            return false;
 
         // NO recursion.
-        if (poolee == null || poolee.SpawnableCrate == null || poolee.GetComponentInChildren<SnapPersonalisation>(true) != null)
+        if (poolee.SpawnableCrate == null || poolee.GetComponentInChildren<SnapPersonalisation>(true) != null)
             return false;
 
         crate = poolee.SpawnableCrate;
@@ -218,7 +229,7 @@ internal static class Trinkets
     {
         var fit = Loaded.TryGetValue(spec.Barcode, out var loaded) ? loaded.Fit : new Fit(Vector3.zero, 1f);
 
-        // Undo the chain's scale, so everything below works in metres
+        // Undo the chain's scale
         var root = CreateChild("BoneSnap Trinket", anchor, layer);
         root.localRotation = HangRotation;
         root.localScale = Divide(Vector3.one, anchor.lossyScale);
@@ -269,8 +280,7 @@ internal static class Trinkets
     }
 
     /// <summary>
-    /// Best guess at shrinking a spawnable down to a trinket: from its MarrowBody bounds, falling back to
-    /// the crate's collider bounds, then its meshes. Hangs from the top-centre of those bounds.
+    /// Attempts to estimate the initial scale of a trinket via its bounds.
     /// </summary>
     private static Fit GetFit(GameObject prefab, SpawnableCrate crate)
     {
@@ -288,8 +298,10 @@ internal static class Trinkets
         bounds = default;
         var found = false;
 
-        var entity = prefab.GetComponent<MarrowEntity>();
-        if (entity == null || entity.Bodies == null)
+        if (!MarrowEntity.Cache.TryGet(prefab, out var entity))
+            return false;
+        
+        if (entity.Bodies == null)
             return false;
 
         foreach (var body in entity.Bodies)

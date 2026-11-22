@@ -24,6 +24,15 @@ public enum HideRigsMode
     All
 }
 
+[Flags]
+public enum RevealMeshesMode
+{
+    None = 0,
+    Head = 1,
+    Hair = 2,
+    HeadAndHair = Head | Hair
+}
+
 public enum PostProcessingPreset
 {
     Standard,
@@ -76,6 +85,9 @@ public readonly struct BoneSnapPreferences(MelonPreferences_Category category)
         category.CreateEntry("PostProcessingPreset", BoneSnap.PostProcessingPreset.Minimal);
 
     public readonly MelonPreferences_Entry<bool> ShiftHeadOffset = category.CreateEntry("ShiftHeadOffset", true);
+
+    public readonly MelonPreferences_Entry<RevealMeshesMode> RevealMeshes =
+        category.CreateEntry("RevealMeshes", RevealMeshesMode.HeadAndHair);
 
     public readonly MelonPreferences_Entry<HideRigsMode> HideRigs =
         category.CreateEntry("HideRigs", HideRigsMode.None);

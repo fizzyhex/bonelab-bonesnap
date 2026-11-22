@@ -40,16 +40,21 @@ namespace BoneSnap.SDK
             _renderer.shadowCastingMode = ShadowCastingMode.Off;
 
             // Shader.Find can't see shaders loaded from asset bundles
-            var unlit = Resources.FindObjectsOfTypeAll<Shader>().FirstOrDefault(shader => shader.name == "Universal Render Pipeline/Unlit");
+            var shaders = Resources.FindObjectsOfTypeAll<Shader>();
+            var overlay = shaders.FirstOrDefault(shader => shader.name == "UI/Default");
+            var unlit = shaders.FirstOrDefault(shader => shader.name == "Universal Render Pipeline/Unlit");
 
-            if (unlit)
+            if (overlay)
+                _renderer.material.shader = overlay;
+            else if (unlit)
             {
                 _renderer.material.shader = unlit;
                 MakeTransparent(_renderer.material);
             }
             else
-                MelonLogger.Warning("Failed to locate the unlit shader! The capture preview will be lit by the scene.");
+                MelonLogger.Warning("Failed to locate an unlit shader! The capture preview will be lit by the scene.");
 
+            DrawOnTop(_renderer.material);
             Clear();
         }
 
@@ -78,6 +83,13 @@ namespace BoneSnap.SDK
             material.SetFloat("_ZWrite", 0);
             material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
             material.renderQueue = (int)RenderQueue.Transparent;
+        }
+
+        public static void DrawOnTop(Material material)
+        {
+            material.SetFloat("unity_GUIZTestMode", (float)CompareFunction.Always); // UI & TextMeshPro shaders
+            material.SetFloat("_ZTest", (float)CompareFunction.Always); // URP shaders that expose it
+            material.renderQueue = (int)RenderQueue.Overlay;
         }
 
         /// <summary>

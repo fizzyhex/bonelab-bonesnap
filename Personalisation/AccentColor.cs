@@ -5,9 +5,6 @@ namespace BoneSnap.Personalisation;
 
 public readonly record struct Swatch(string Name, Color Color);
 
-/// <summary>
-/// Catppuccin's accent names, shared by every flavour - for BoneMenu's swatch picker.
-/// </summary>
 public enum CatppuccinAccent
 {
     Rosewater,
@@ -26,9 +23,6 @@ public enum CatppuccinAccent
     Lavender
 }
 
-/// <summary>
-/// The player's accent colour - tinting their camera's body and UI, and BoneSnap's BoneMenu.
-/// </summary>
 internal static class AccentColor
 {
     public const string DefaultSwatch = "Teal";
@@ -76,7 +70,7 @@ internal static class AccentColor
     private static string? _currentHex;
 
     /// <summary>
-    /// The accent colour from the player's preferences.
+    /// The current accent colour from the player's prefs.
     /// </summary>
     public static Color Current => Resolve(Main.Prefs);
 
@@ -115,7 +109,7 @@ internal static class AccentColor
     }
 
     /// <summary>
-    /// Wraps text in the accent colour, for BoneMenu's rich text.
+    /// Outputs coloured rich text for display in the BoneMenu.
     /// </summary>
     public static string Colorize(string text) => $"<color={CurrentHex}>{text}</color>";
 
@@ -128,7 +122,7 @@ internal static class AccentColor
     }
 
     /// <summary>
-    /// Parses <c>#RGB</c> or <c>#RRGGBB</c>, with or without the <c>#</c>.
+    /// Parses a hex string to a color.
     /// </summary>
     public static bool TryParseHex(string? hex, out Color color)
     {

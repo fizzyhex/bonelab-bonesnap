@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System.Collections;
+using System.Diagnostics;
 using BoneSnap.Assets;
 using BoneSnap.SDK;
 using BoneSnap.Utilities;
@@ -59,7 +60,7 @@ internal class Screenshotter
     /// Renders <see cref="CaptureParams.Camera"/> and reads its pixels back synchronously.
     /// </summary>
     /// <remarks>
-    /// Touches the Unity API, so it must run on the main thread.
+    /// Uses the Unity API, run on the main thread to avoid crashes!
     /// </remarks>
     private static bool TryRender(CaptureParams captureParams, out RawCapture capture)
     {
@@ -79,7 +80,8 @@ internal class Screenshotter
 
         var (width, height) = ClampToMaxTextureSize(captureParams.Width, captureParams.Height);
 
-        var disabledAvatarArt = captureParams.ShiftHeadOffset ? DisableLocalAvatarArt() : null;
+        // Show the head and hair before hiding rigs so rig hiding also applies to those renderers.
+        var shownHeadAndHair = RevealLocalMeshes(captureParams.RevealMeshes);
         var hiddenRenderers = HideRigRenderers(captureParams.HideRigs);
 
         try
@@ -101,8 +103,11 @@ internal class Screenshotter
                     renderer.enabled = true;
             }
 
-            if (disabledAvatarArt != null)
-                disabledAvatarArt.enabled = true;
+            if (shownHeadAndHair is var (avatarArt, headWasHidden, hairWasHidden) && avatarArt != null)
+            {
+                if (headWasHidden) avatarArt.DisableHead();
+                if (hairWasHidden) avatarArt.DisableHair();
+            }
         }
 
         return true;
@@ -355,6 +360,30 @@ internal class Screenshotter
         return avatarArt;
     }
 
+    private static (PlayerAvatarArt AvatarArt, bool HeadWasHidden, bool HairWasHidden)? RevealLocalMeshes(RevealMeshesMode mode)
+    {
+        var rigManager = Player.RigManager;
+
+        if (mode == RevealMeshesMode.None || rigManager == null || rigManager.avatar == null)
+            return null;
+
+        var avatarArt = rigManager.GetComponentInChildren<PlayerAvatarArt>();
+
+        if (avatarArt == null)
+            return null;
+
+        var avatar = rigManager.avatar;
+        var headWasHidden = mode.HasFlag(RevealMeshesMode.Head) &&
+                            (avatar.headMeshes?.Any(mesh => mesh != null && !mesh.enabled) ?? false);
+        var hairWasHidden = mode.HasFlag(RevealMeshesMode.Hair) &&
+                            (avatar.hairMeshes?.Any(mesh => mesh != null && mesh.shadowCastingMode == ShadowCastingMode.ShadowsOnly) ?? false);
+
+        if (headWasHidden) avatarArt.EnableHead();
+        if (hairWasHidden) avatarArt.EnableHair();
+
+        return (avatarArt, headWasHidden, hairWasHidden);
+    }
+
     private static List<Renderer> HideRigRenderers(HideRigsMode mode)
     {
         var hiddenRenderers = new List<Renderer>();
@@ -448,6 +477,32 @@ internal class Screenshotter
         MelonCoroutines.Start(WaitAndThenRunCallback(waitTime, callback));
     }
 
+    private static IEnumerator RunWithHeadOffsetShifted(bool shiftHeadOffset, Func<Task> capture, Action<Task> callback)
+    {
+        var disabledAvatarArt = shiftHeadOffset ? DisableLocalAvatarArt() : null;
+
+        // PlayerAvatarArt offsets the head during the avatar update, so disabling it only shows on the next frame
+        if (disabledAvatarArt != null)
+            yield return null;
+
+        Task task;
+
+        try
+        {
+            task = capture();
+        }
+        finally
+        {
+            if (disabledAvatarArt != null)
+                disabledAvatarArt.enabled = true;
+        }
+
+        while (!task.IsCompleted)
+            yield return null;
+
+        callback(task);
+    }
+
     public void PrepareFisheyeCapture(float waitTime, CaptureParams captureParams)
     {
         var spectatorReferences = _referenceCache.GetSpectatorReferences();
@@ -457,20 +512,20 @@ internal class Screenshotter
         var previewAnchor = followingHead ? null : spectatorReferences.Follower?.targetTransform;
 
         SnapHUD.GetInstance().SwapState(new CountdownState(waitTime, spectatorReferences.Camera, previewAnchor));
-        PrepareCapture(waitTime, () => RunCapture(() => OutputFisheyeCapture(captureParams)));
+        PrepareCapture(waitTime, () => RunCapture(captureParams.ShiftHeadOffset, () => OutputFisheyeCapture(captureParams)));
     }
 
     public void PrepareScreenshotCapture(float waitTime, CaptureParams captureParams)
     {
-        PrepareCapture(waitTime, () => RunCapture(() => OutputScreenshot(captureParams)));
+        PrepareCapture(waitTime, () => RunCapture(false, () => OutputScreenshot(captureParams)));
     }
 
-    private static void RunCapture(Func<Task> capture)
+    private static void RunCapture(bool shiftHeadOffset, Func<Task> capture)
     {
         if (AssetManager.CaptureStartAudio != null) AudioManager.Play(AssetManager.CaptureStartAudio);
 
         // Awaiting resumes off the main thread, play completion audio from a coroutine
-        MelonCoroutines.Start(WaitForTaskAndThenRunCallback(capture(), OnCaptureFinished));
+        MelonCoroutines.Start(RunWithHeadOffsetShifted(shiftHeadOffset, capture, OnCaptureFinished));
         return;
 
         static void OnCaptureFinished(Task task)
@@ -494,19 +549,14 @@ internal class Screenshotter
             return false;
         }
 
-        RunSdkCapture();
+        var captureParams = CaptureParams.FromPreferences(preferences, camera);
+        MelonCoroutines.Start(RunWithHeadOffsetShifted(captureParams.ShiftHeadOffset, () => Capture(captureParams), OnSdkCaptureFinished));
         return true;
 
-        async void RunSdkCapture()
+        static void OnSdkCaptureFinished(Task task)
         {
-            try
-            {
-                await Capture(CaptureParams.FromPreferences(preferences, camera));
-            }
-            catch (Exception e)
-            {
-                MelonLogger.Error($"SDK capture failed: {e}");
-            }
+            if (task.IsFaulted)
+                MelonLogger.Error($"SDK capture failed: {task.Exception}");
         }
     }
 }
