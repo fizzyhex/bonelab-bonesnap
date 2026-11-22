@@ -39,7 +39,8 @@ internal partial class Screenshotter
 
         var captureParams = CaptureParams.FromPreferences(preferences, camera) with
         {
-            ShiftHeadOffset = preferences.ShiftHeadOffset.Value
+            ShiftHeadOffset = preferences.ShiftHeadOffset.Value,
+            RevealMeshes = preferences.RevealMeshes.Value
         };
 
         MelonCoroutines.Start(RunCapture(captureParams, CaptureCamera, OnSdkCaptureFinished));
@@ -72,7 +73,6 @@ internal partial class Screenshotter
             MelonLogger.Warning("Rig screen options missing!");
             yield break;
         }
-
 
         var autoExposureMode = spectatorReferences.AutoExposure?.mode.value;
         var autoExposureActive = spectatorReferences.AutoExposure == null || spectatorReferences.AutoExposure.active;

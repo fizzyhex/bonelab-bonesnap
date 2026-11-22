@@ -4,7 +4,7 @@ using BoneSnap.Assets;
 using BoneSnap.Capture;
 using BoneSnap.Personalisation;
 using BoneSnap.SDK;
-using BoneSnap.UI;
+using BoneSnap.Menu;
 
 namespace BoneSnap;
 

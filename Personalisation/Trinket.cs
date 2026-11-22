@@ -159,8 +159,9 @@ internal static class Trinkets
             return false;
 
         var held = Player.GetObjectInHand(hand);
+        var poolee = held == null ? null : held.GetComponentInParent<Poolee>();
 
-        if (!Poolee.Cache.TryGet(held, out var poolee))
+        if (poolee == null)
             return false;
 
         // NO recursion.

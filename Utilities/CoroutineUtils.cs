@@ -1,4 +1,5 @@
 ﻿using System.Collections;
+using MelonLoader;
 using UnityEngine;
 
 namespace BoneSnap;
@@ -17,5 +18,15 @@ internal static class CoroutineUtils
             yield return null;
 
         callback(task);
+    }
+    
+    // this shit is hacky please only use when needed
+    public static void AfterFrame(Action callback)
+        => MelonCoroutines.Start(AndThen(callback));
+
+    private static IEnumerator AndThen(Action callback)
+    {
+        yield return null;
+        callback();
     }
 }

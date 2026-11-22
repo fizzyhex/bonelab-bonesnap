@@ -7,7 +7,7 @@ using BoneSnap.Personalisation;
 using MelonLoader;
 using UnityEngine;
 
-namespace BoneSnap.UI;
+namespace BoneSnap.Menu;
 
 internal abstract class BoneMenu
 {
@@ -19,6 +19,7 @@ internal abstract class BoneMenu
     private static bool _watching;
     private static Action? _renderPersonalisation;
     private static string? _adjustingBarcode;
+    private static readonly Dictionary<(Page Parent, string Name), Page> ChildPages = new();
     
     public static void DrawBoneMenu(BoneSnapPreferences preferences, Screenshotter screenshotter, Page? page=null)
     {
@@ -51,27 +52,8 @@ internal abstract class BoneMenu
                 DrawBoneMenu(preferences, screenshotter, page);
             });
         }
-            
+        
         RenderCapturePrefs(preferences.MainCapturePrefs);
-
-        page.CreateFunction("Open Folder", Color.white, () =>
-        {
-            if (screenshotter.LastCaptureFileName != null)
-            {
-                var path = Path.Combine(preferences.GetExplorerOutputPath(), screenshotter.LastCaptureFileName);
-                MelonLogger.Msg($"path: {path}");
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = "explorer.exe",
-                    Arguments = $"/select,\"{path}\"",
-                    UseShellExecute = true
-                });
-            }
-            else
-            {
-                Process.Start("explorer.exe", preferences.GetExplorerOutputPath());
-            }
-        });
         
         return;
             
@@ -107,21 +89,17 @@ internal abstract class BoneMenu
                 });
             }
 
-            var moreOptions = GetOrCreatePage(page, $"More {preferences.CaptureMode.Value} Options!");
+            var moreOptions = GetOrCreatePage(page, "More Options!");
             moreOptions.RemoveAll();
 
-            // Post processing & rig overrides only apply to the spectator camera (fisheye)
-            if (preferences.CaptureMode.Value == CaptureMode.Fisheye)
+            RenderPostProcessingPrefs(GetOrCreatePage(moreOptions, "Post Processing"));
+            RenderRigPrefs(GetOrCreatePage(moreOptions, "Rig"));
+            
+            moreOptions.CreateBool("Capture Preview", Color.white, preferences.ShowPreview.Value, value =>
             {
-                RenderPostProcessingPrefs(GetOrCreatePage(moreOptions, "Post Processing"));
-                RenderRigPrefs(GetOrCreatePage(moreOptions, "Rig"));
-
-                moreOptions.CreateBool("Show Preview", Color.white, preferences.ShowPreview.Value, value =>
-                {
-                    preferences.ShowPreview.Value = value;
-                    preferences.ManualSave();
-                });
-            }
+                preferences.ShowPreview.Value = value;
+                preferences.ManualSave();
+            });
 
             var personalisationPage = GetOrCreatePage(moreOptions, "Personalisation");
             RenderPersonalisation(personalisationPage);
@@ -137,16 +115,17 @@ internal abstract class BoneMenu
             var accent = AccentColor.Current;
             var palette = preferences.AccentPalette.Value;
 
-            personalisationPage.CreateFunction($"Palette: {AccentColor.PaletteName(palette)}", Color.white, () =>
-            {
-                preferences.AccentPalette.Value = palette switch
+            personalisationPage.CreateDisplayEnum("Palette", Color.white, palette,
+                [
+                    (AccentPalette.CatppuccinFrappe, AccentColor.PaletteName(AccentPalette.CatppuccinFrappe)),
+                    (AccentPalette.CatppuccinLatte, AccentColor.PaletteName(AccentPalette.CatppuccinLatte)),
+                    (AccentPalette.Hex, AccentColor.PaletteName(AccentPalette.Hex))
+                ],
+                value =>
                 {
-                    AccentPalette.CatppuccinFrappe => AccentPalette.CatppuccinLatte,
-                    AccentPalette.CatppuccinLatte => AccentPalette.Hex,
-                    _ => AccentPalette.CatppuccinFrappe
-                };
-                OnAccentChanged();
-            });
+                    preferences.AccentPalette.Value = value;
+                    OnAccentChanged();
+                });
 
             if (palette == AccentPalette.Hex)
             {
@@ -200,20 +179,23 @@ internal abstract class BoneMenu
                 });
             }
 
-            if (!canChange)
-                personalisationPage.CreateFunction("Grab an item to select a custom keychain trinket!", Color.gray, null);
-
             var current = preferences.KeychainBarcode.Value;
+            var nothingSelected = string.IsNullOrEmpty(current);
+            
+            if (nothingSelected && !canChange)
+                personalisationPage.CreateLabel("Grab an item to select a custom keychain trinket!");
 
-            if (string.IsNullOrEmpty(current))
+            if (nothingSelected)
                 return;
 
-            var adjustPage = GetOrCreatePage(personalisationPage, "Trinket Adjust");
+            personalisationPage.CreateHeader($"Trinket - {Trinkets.GetTitle(current)}");
+
+            var adjustPage = GetOrCreatePage(personalisationPage, "Adjust");
 
             if (current != _adjustingBarcode || adjustPage.Elements.Count == 0)
                 RenderTrinketAdjust(adjustPage, current);
 
-            personalisationPage.CreateFunction($"Remove Keychain ({Trinkets.GetTitle(current)})", Color.white, () =>
+            personalisationPage.CreateFunction($"Remove", Color.white, () =>
             {
                 preferences.KeychainBarcode.Value = string.Empty;
                 preferences.ManualSave();
@@ -233,7 +215,7 @@ internal abstract class BoneMenu
                 preferences.ManualSave();
             }
 
-            adjustPage.CreateFunction($"Adjusting {Trinkets.GetTitle(barcode)}", Color.gray, null);
+            adjustPage.CreateLabel($"Adjusting {Trinkets.GetTitle(barcode)}");
 
             adjustPage.CreateFloat("Scale", Color.white, adjustment.Scale, .1f, .1f, 5f, value =>
             {
@@ -296,10 +278,50 @@ internal abstract class BoneMenu
         }
 
         void RenderOutputPath(Page outputPage)
-            => outputPage.CreateFunction($"Outputting to {preferences.OutputPath.Value}", Color.gray, null);
+        {
+            outputPage.CreateLabel($"Outputting to {preferences.OutputPath.Value}");
+            
+            page.CreateFunction("Open Folder", Color.white, () =>
+            {
+                if (screenshotter.LastCaptureFileName != null)
+                {
+                    var path = Path.Combine(preferences.GetExplorerOutputPath(), screenshotter.LastCaptureFileName);
+                    MelonLogger.Msg($"path: {path}");
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "explorer.exe",
+                        Arguments = $"/select,\"{path}\"",
+                        UseShellExecute = true
+                    });
+                }
+                else
+                {
+                    Process.Start("explorer.exe", preferences.GetExplorerOutputPath());
+                }
+            });
+        }
 
         void RenderRigPrefs(Page rigPage)
         {
+            rigPage.RemoveAll();
+            rigPage.CreateHeader("General");
+            
+            var hideRigs = rigPage.CreateDisplayEnum("Hide Rigs", Color.white, preferences.HideRigs.Value,
+                [
+                    (HideRigsMode.None, "None"),
+                    (HideRigsMode.Local, "Local"),
+                    (HideRigsMode.All, "All (Fusion)")
+                ],
+                value =>
+                {
+                    preferences.HideRigs.Value = value;
+                    preferences.ManualSave();
+                });
+
+            hideRigs.SetTooltip("Hides RigManagers on the frame of capture.");
+
+            rigPage.CreateHeader("Spawnables");
+            
             var shiftHeadOffset = rigPage.CreateBool("Shift Head Offset", Color.white, preferences.ShiftHeadOffset.Value, value =>
             {
                 preferences.ShiftHeadOffset.Value = value;
@@ -309,53 +331,21 @@ internal abstract class BoneMenu
             shiftHeadOffset.SetTooltip("Bonelab shifts your avatar's head back during gameplay to prevent it from clipping your view in VR. " +
                                        "This disables the PlayerAvatarArt script on your rig for the capture to fix that.");
 
-            FunctionElement? revealMeshes = null;
-            revealMeshes = rigPage.CreateFunction(GetRevealMeshesName(), Color.white, () =>
-            {
-                preferences.RevealMeshes.Value = preferences.RevealMeshes.Value switch
+            var revealMeshes = rigPage.CreateDisplayEnum("Reveal Meshes", Color.white, preferences.RevealMeshes.Value,
+                [
+                    (RevealMeshesMode.HeadAndHair, "Head & Hair"),
+                    (RevealMeshesMode.Head, "Head"),
+                    (RevealMeshesMode.Hair, "Hair"),
+                    (RevealMeshesMode.None, "None")
+                ],
+                value =>
                 {
-                    RevealMeshesMode.HeadAndHair => RevealMeshesMode.Head,
-                    RevealMeshesMode.Head => RevealMeshesMode.Hair,
-                    RevealMeshesMode.Hair => RevealMeshesMode.None,
-                    _ => RevealMeshesMode.HeadAndHair
-                };
-                preferences.ManualSave();
-                revealMeshes!.ElementName = GetRevealMeshesName();
-            });
+                    preferences.RevealMeshes.Value = value;
+                    preferences.ManualSave();
+                });
 
             revealMeshes.SetTooltip("Bonelab also hides your avatar's head and hair during gameplay to prevent it from clipping your view in VR. " +
                                     "This shows the selected meshes on the frame the capture is taken.");
-
-            // A function rather than an enum, as enum elements can only show the raw value names
-            FunctionElement? hideRigs = null;
-            hideRigs = rigPage.CreateFunction(GetHideRigsName(), Color.white, () =>
-            {
-                preferences.HideRigs.Value = preferences.HideRigs.Value switch
-                {
-                    HideRigsMode.None => HideRigsMode.Local,
-                    HideRigsMode.Local => HideRigsMode.All,
-                    _ => HideRigsMode.None
-                };
-                preferences.ManualSave();
-                hideRigs!.ElementName = GetHideRigsName();
-            });
-
-            hideRigs.SetTooltip("Hides RigManagers on the frame of capture.");
-
-            string GetRevealMeshesName() => "Reveal Meshes: " + preferences.RevealMeshes.Value switch
-            {
-                RevealMeshesMode.Head => "Head",
-                RevealMeshesMode.Hair => "Hair",
-                RevealMeshesMode.HeadAndHair => "Head & Hair",
-                _ => "None"
-            };
-
-            string GetHideRigsName() => "Hide Rigs: " + preferences.HideRigs.Value switch
-            {
-                HideRigsMode.Local => "Local",
-                HideRigsMode.All => "All (Fusion)",
-                _ => "None"
-            };
         }
 
         void RenderPostProcessingPrefs(Page postProcessingPage)
@@ -412,14 +402,19 @@ internal abstract class BoneMenu
 
     private static Page GetOrCreatePage(Page parent, string name)
     {
-        // Redraws remove the link, but the page itself lives on
-        if (parent.TryGetChildPage(name, out var existing))
+        // Redraws remove the links BoneLib uses to find child pages.
+        // Reuse the original page so players already viewing it see the updates.
+        if (ChildPages.TryGetValue((parent, name), out var existing))
         {
-            parent.CreatePageLink(existing);
+            if (!parent.TryGetChildPage(name, out _))
+                parent.CreatePageLink(existing);
+
             return existing;
         }
 
-        return parent.CreatePage(name, Color.white);
+        var created = parent.CreatePage(name, Color.white);
+        ChildPages[(parent, name)] = created;
+        return created;
     }
 
     /// <summary>
@@ -433,14 +428,15 @@ internal abstract class BoneMenu
             return;
 
         _watching = true;
+
+        Hooking.OnGrabObject += (_, _) => BeginRefresh();
+        Hooking.OnReleaseObject += _ => BeginRefresh();
+        Hooking.OnLevelLoaded += _ => BeginRefresh();
+
+        return;
         
-        Hooking.OnGrabObject += (_, _) => RefreshPersonalisation();
-        Hooking.OnReleaseObject += _ => RefreshPersonalisation();
-        Hooking.OnLevelLoaded += _ => RefreshPersonalisation();
+        void BeginRefresh() => CoroutineUtils.AfterFrame(RefreshPersonalisation);
     }
 
-    /// <summary>
-    /// Re-renders the Personalisation page, e.g. after its preferences change.
-    /// </summary>
     public static void RefreshPersonalisation() => _renderPersonalisation?.Invoke();
 }

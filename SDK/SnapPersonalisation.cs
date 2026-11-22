@@ -24,12 +24,16 @@ namespace BoneSnap.SDK
         public Il2CppReferenceField<Material>? accentMaterial;
         public Il2CppReferenceField<Transform>? chainRoot;
         public Il2CppReferenceField<Transform>? chainLink;
+        public Il2CppReferenceField<Rigidbody>? chainRootBody;
+        public Il2CppReferenceField<Rigidbody>? chainLinkBody;
         public Il2CppReferenceField<Transform>? trinketAnchor;
         public Il2CppReferenceField<GameObject>? accentSync;
         public Il2CppReferenceField<GameObject>? trinketSync;
 
         private Transform? ChainRoot => chainRoot?.Get();
         private Transform? ChainLink => chainLink?.Get();
+        private Rigidbody? ChainRootBody => chainRootBody?.Get();
+        private Rigidbody? ChainLinkBody => chainLinkBody?.Get();
         internal GameObject? AccentSync => accentSync?.Get();
         internal GameObject? TrinketSync => trinketSync?.Get();
 #else
@@ -39,6 +43,10 @@ namespace BoneSnap.SDK
         public Transform chainRoot;
         [Tooltip("Second keychain bone, hanging from the first")]
         public Transform chainLink;
+        [Tooltip("Collider-less jointed body driving the first keychain bone, jointed to the camera")]
+        public Rigidbody chainRootBody;
+        [Tooltip("Collider-less jointed body driving the second keychain bone, jointed to the first")]
+        public Rigidbody chainLinkBody;
         [Tooltip("Where the keychain trinket hangs from (the chain's end)")]
         public Transform trinketAnchor;
         [Tooltip("Optional - GameObject with a Fusion RPCString, syncing the spawner's accent colour")]
@@ -48,13 +56,15 @@ namespace BoneSnap.SDK
 
         private Transform ChainRoot => chainRoot;
         private Transform ChainLink => chainLink;
+        private Rigidbody ChainRootBody => chainRootBody;
+        private Rigidbody ChainLinkBody => chainLinkBody;
 #endif
 
         private KeychainPhysics? _keychain;
 
         private void Awake()
         {
-            _keychain = KeychainPhysics.Create(GetComponent<Rigidbody>(), ChainRoot, ChainLink);
+            _keychain = KeychainPhysics.Create(GetComponent<Rigidbody>(), ChainRoot, ChainLink, ChainRootBody, ChainLinkBody);
         }
 
         private void OnEnable()
@@ -225,14 +235,11 @@ namespace BoneSnap.SDK
     }
 
     /// <summary>
-    /// Drives the keychain's skinned bones with collider-less joint proxies, so the chain can swing
+    /// Drives the keychain's skinned bones with the prefab's collider-less joint proxies, so the chain can swing
     /// without touching anything or tugging on the camera.
     /// </summary>
     internal sealed class KeychainPhysics
     {
-        private const float LinkMass = .01f;
-        private const float SwingLimit = 80f;
-        private const float TwistLimit = 25f;
         // A proxy this far from where it should hang means the camera teleported (or was pooled)
         private const float SnapDistance = .25f;
 
@@ -242,70 +249,41 @@ namespace BoneSnap.SDK
         private readonly Rigidbody[] _proxies;
         private readonly Vector3 _attachAnchor;
 
-        public static KeychainPhysics? Create(Rigidbody? body, Transform? root, Transform? link)
+        public static KeychainPhysics? Create(Rigidbody? body, Transform? root, Transform? link, Rigidbody? rootProxy, Rigidbody? linkProxy)
         {
-            if (body == null || root == null || link == null)
+            if (body == null || root == null || link == null || rootProxy == null || linkProxy == null)
                 return null;
 
-            return new KeychainPhysics(body, new[] { root, link });
+            return new KeychainPhysics(body, new[] { root, link }, new[] { rootProxy, linkProxy });
         }
 
-        private KeychainPhysics(Rigidbody body, Transform[] bones)
+        private KeychainPhysics(Rigidbody body, Transform[] bones, Rigidbody[] proxies)
         {
             _body = body;
             _bones = bones;
             _restRotations = new Quaternion[bones.Length];
-            _proxies = new Rigidbody[bones.Length];
+            _proxies = proxies;
             _attachAnchor = body.transform.InverseTransformPoint(bones[0].position);
-
-            var connected = body;
 
             for (var i = 0; i < bones.Length; i++)
             {
                 var bone = bones[i];
                 _restRotations[i] = bone.localRotation;
 
-                var proxy = new GameObject($"{body.name} (Keychain Link {i + 1})");
-                proxy.transform.SetPositionAndRotation(bone.position, bone.rotation);
+                var proxy = proxies[i];
+                // Out from under the camera, so its interpolated transform never drags the chain around
+                proxy.transform.SetParent(null, true);
 
                 // The bone's +Y runs down the chain, to the next bone
                 var length = Vector3.Distance(bone.position, GetEnd(bones, i).position);
 
-                var rigidbody = proxy.AddComponent<Rigidbody>();
-                rigidbody.mass = LinkMass;
-                rigidbody.drag = .5f;
-                rigidbody.angularDrag = 2f;
-                rigidbody.interpolation = RigidbodyInterpolation.Interpolate;
-                rigidbody.solverIterations = 12;
-                rigidbody.solverVelocityIterations = 4;
-                rigidbody.centerOfMass = Vector3.up * (length * .5f);
+                // Unity doesn't serialize these, so they can't live on the prefab
+                proxy.solverIterations = 12;
+                proxy.solverVelocityIterations = 4;
+                proxy.centerOfMass = Vector3.up * (length * .5f);
                 // There are no colliders to derive inertia from, so use a thin rod's
-                rigidbody.inertiaTensor = Vector3.one * Mathf.Max(LinkMass * length * length / 3f, 1e-6f);
-                rigidbody.inertiaTensorRotation = Quaternion.identity;
-
-                var joint = proxy.AddComponent<ConfigurableJoint>();
-                joint.autoConfigureConnectedAnchor = false;
-                joint.connectedBody = connected;
-                joint.anchor = Vector3.zero;
-                joint.connectedAnchor = connected.transform.InverseTransformPoint(bone.position);
-                joint.axis = Vector3.up;
-                joint.secondaryAxis = Vector3.forward;
-                joint.xMotion = joint.yMotion = joint.zMotion = ConfigurableJointMotion.Locked;
-                joint.angularXMotion = joint.angularYMotion = joint.angularZMotion = ConfigurableJointMotion.Limited;
-                joint.lowAngularXLimit = new SoftJointLimit { limit = -TwistLimit };
-                joint.highAngularXLimit = new SoftJointLimit { limit = TwistLimit };
-                joint.angularYLimit = new SoftJointLimit { limit = SwingLimit };
-                joint.angularZLimit = new SoftJointLimit { limit = SwingLimit };
-                joint.projectionMode = JointProjectionMode.PositionAndRotation;
-                joint.projectionDistance = .005f;
-                joint.projectionAngle = 5f;
-                joint.enablePreprocessing = false;
-                // Treat the camera as immovable, so the chain never tugs on the player's hand
-                if (i == 0)
-                    joint.connectedMassScale = .001f;
-
-                _proxies[i] = rigidbody;
-                connected = rigidbody;
+                proxy.inertiaTensor = Vector3.one * Mathf.Max(proxy.mass * length * length / 3f, 1e-6f);
+                proxy.inertiaTensorRotation = Quaternion.identity;
             }
         }
 

@@ -24,7 +24,6 @@ public readonly record struct CaptureParams(
             Quality: preferences.MainCapturePrefs.CaptureQuality.Value,
             OutputPath: preferences.OutputPath.Value,
             DisabledVolumeComponents: preferences.GetDisabledVolumeComponents(),
-            RevealMeshes: preferences.RevealMeshes.Value,
             HideRigs: preferences.HideRigs.Value
         );
     }
