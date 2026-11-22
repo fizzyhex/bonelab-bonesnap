@@ -59,6 +59,27 @@ internal partial class Screenshotter
     private delegate IEnumerator CaptureStep(CaptureParams captureParams, CaptureResult result);
 
     /// <summary>
+    /// Shows a live preview of the next capture on the HUD.
+    /// </summary>
+    public void StartPreview(BoneSnapPreferences preferences)
+    {
+        if (preferences.CaptureMode.Value != CaptureMode.Fisheye)
+        {
+            SnapHUD.GetInstance().SwapState(new PreviewState(previewScreen: true));
+            return;
+        }
+
+        var (camera, anchor) = GetFisheyePreviewSource();
+        SnapHUD.GetInstance().SwapState(new PreviewState(camera, anchor, previewParams: () => CaptureParams.FromPreferences(preferences)));
+    }
+
+    public void StopPreview()
+    {
+        if (SnapHUD.IsPreviewing)
+            SnapHUD.GetInstance().SwapState(new IdleState());
+    }
+
+    /// <summary>
     /// Plays the countdown audio if available, then starts <paramref name="capture"/> after <paramref
     /// name="waitTime"/>.
     /// </summary>

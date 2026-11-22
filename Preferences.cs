@@ -97,6 +97,11 @@ public readonly struct BoneSnapPreferences(MelonPreferences_Category category)
 
     public readonly MelonPreferences_Entry<bool> ShowPreview = category.CreateEntry("ShowPreview", true);
 
+    // The spectator camera's field of view in fisheye mode
+    public const float DefaultFieldOfView = 78f;
+
+    public readonly MelonPreferences_Entry<float> FieldOfView = category.CreateEntry("FieldOfView", DefaultFieldOfView);
+
     public readonly MelonPreferences_Entry<AccentPalette> AccentPalette =
         category.CreateEntry("AccentPalette", BoneSnap.AccentPalette.CatppuccinFrappe);
 

@@ -4,6 +4,7 @@ using BoneLib.BoneMenu;
 using BoneSnap.Capture;
 using BoneSnap.Extensions;
 using BoneSnap.Personalisation;
+using BoneSnap.SDK;
 using MelonLoader;
 using UnityEngine;
 
@@ -21,6 +22,8 @@ internal abstract class BoneMenu
     private static Page? _personalisationPage;
     private static string? _adjustingBarcode;
     private static readonly Dictionary<(Page Parent, string Name), Page> ChildPages = new();
+    private static readonly Dictionary<Page, FunctionElement> PreviewButtons = new();
+    private static bool _watchingPreview;
     
     public static void DrawBoneMenu(BoneSnapPreferences preferences, Screenshotter screenshotter, Page? page=null)
     {
@@ -43,6 +46,8 @@ internal abstract class BoneMenu
                     screenshotter.PrepareScreenCapture(waitTime, captureParams);
             }
         );
+
+        CreatePreviewButton(page, preferences, screenshotter);
         
         if (!Utilities.PlatformHelper.IsAndroid)
         {
@@ -51,6 +56,10 @@ internal abstract class BoneMenu
                 preferences.CaptureMode.Value = (CaptureMode)value;
                 preferences.ManualSave();
                 DrawBoneMenu(preferences, screenshotter, page);
+
+                // Switch the preview over to the new mode
+                if (SnapHUD.IsPreviewing)
+                    screenshotter.StartPreview(preferences);
             });
         }
         
@@ -93,6 +102,7 @@ internal abstract class BoneMenu
             var moreOptions = GetOrCreatePage(page, "More Options!");
             moreOptions.RemoveAll();
 
+            RenderCameraAdjustments(GetOrCreatePage(moreOptions, "Camera Adjustments"));
             RenderPostProcessingPrefs(GetOrCreatePage(moreOptions, "Post Processing"));
             RenderRigPrefs(GetOrCreatePage(moreOptions, "Rig"));
             
@@ -372,9 +382,29 @@ internal abstract class BoneMenu
                                     "This shows the selected meshes on the frame the capture is taken.");
         }
 
+        void RenderCameraAdjustments(Page cameraPage)
+        {
+            cameraPage.RemoveAll();
+            CreatePreviewButton(cameraPage, preferences, screenshotter);
+
+            var fieldOfView = cameraPage.CreateFloat("Field of View", Color.white, preferences.FieldOfView.Value, 5f, 10f, 170f, value =>
+            {
+                preferences.FieldOfView.Value = value;
+                preferences.ManualSave();
+            });
+            
+            cameraPage.CreateFunction("Reset", Color.white, () =>
+            {
+                preferences.FieldOfView.Value = BoneSnapPreferences.DefaultFieldOfView;
+                preferences.ManualSave();
+                RenderCameraAdjustments(cameraPage);
+            });
+        }
+
         void RenderPostProcessingPrefs(Page postProcessingPage)
         {
             postProcessingPage.RemoveAll();
+            CreatePreviewButton(postProcessingPage, preferences, screenshotter);
 
             var preset = postProcessingPage.CreateEnum("Preset", Color.white, preferences.PostProcessingPreset.Value, value =>
             {
@@ -422,6 +452,43 @@ internal abstract class BoneMenu
         }
     
         string GetTitle() => IsExtreme() ? $"{GradientTitle} {ExtremeText("(EXTREME!!)")}" : GradientTitle;
+    }
+
+    /// <summary>
+    /// Creates a button that toggles the capture preview
+    /// </summary>
+    private static void CreatePreviewButton(Page page, BoneSnapPreferences preferences, Screenshotter screenshotter)
+    {
+        // Replaces the button from the page's last draw
+        PreviewButtons[page] = page.CreateFunction(GetPreviewLabel(), Color.white, () =>
+        {
+            if (SnapHUD.IsPreviewing)
+                screenshotter.StopPreview();
+            else
+                screenshotter.StartPreview(preferences);
+        });
+
+        if (_watchingPreview)
+            return;
+
+        _watchingPreview = true;
+
+        // Snapping takes over the preview, and the HUD is destroyed with the level
+        SnapHUD.StateChanged += RefreshPreviewButtons;
+        Hooking.OnLevelLoaded += _ => RefreshPreviewButtons();
+    }
+
+    private static string GetPreviewLabel() => SnapHUD.IsPreviewing ? "Stop Preview" : "Preview";
+
+    private static void RefreshPreviewButtons()
+    {
+        var label = GetPreviewLabel();
+
+        foreach (var button in PreviewButtons.Values)
+        {
+            if (button.ElementName != label)
+                button.ElementName = label;
+        }
     }
 
     private static Page GetOrCreatePage(Page parent, string name)

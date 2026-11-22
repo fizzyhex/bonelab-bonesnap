@@ -29,6 +29,7 @@ namespace BoneSnap.SDK
 
         private Camera? _camera;
         private Transform? _anchor;
+        private Func<CaptureParams>? _captureParams;
         private Renderer[] _hudRenderers = [];
 
         private bool _trackingScreen;
@@ -107,11 +108,11 @@ namespace BoneSnap.SDK
         /// <summary>
         /// Renders <paramref name="camera"/> onto the quad every frame, until it's frozen or cleared.
         /// </summary>
-        /// <param name="anchor">Optional transform to move the camera to before each render, for cameras that aren't following anything themselves.</param>
-        public void Track(Camera camera, Transform? anchor = null)
+        public void Track(Camera camera, Transform? anchor = null, Func<CaptureParams>? captureParams = null)
         {
             _camera = camera;
             _anchor = anchor;
+            _captureParams = captureParams;
             _hudRenderers = transform.parent.GetComponentsInChildren<Renderer>().ToArray();
             _trackingScreen = false;
 
@@ -164,9 +165,6 @@ namespace BoneSnap.SDK
             if (_camera is not { } camera || !camera)
                 return;
 
-            if (_anchor is { } anchor && anchor)
-                camera.transform.SetPositionAndRotation(anchor.position, anchor.rotation);
-
             Render(camera);
         }
 
@@ -174,12 +172,20 @@ namespace BoneSnap.SDK
         {
             var target = GetTexture(camera.pixelWidth, camera.pixelHeight);
             var previousTarget = camera.targetTexture;
+            var cameraTransform = camera.transform;
+            var previousPosition = cameraTransform.position;
+            var previousRotation = cameraTransform.rotation;
 
             // Keep the HUD out of its own preview
             var hiddenRenderers = _hudRenderers.Where(hudRenderer => hudRenderer && hudRenderer.enabled).ToArray();
 
             foreach (var hudRenderer in hiddenRenderers)
                 hudRenderer.enabled = false;
+
+            if (_anchor is { } anchor && anchor)
+                cameraTransform.SetPositionAndRotation(anchor.position, anchor.rotation);
+
+            var adjustments = _captureParams is { } captureParams ? CameraAdjustments.Apply(camera, captureParams()) : null;
 
             try
             {
@@ -189,6 +195,10 @@ namespace BoneSnap.SDK
             finally
             {
                 camera.targetTexture = previousTarget;
+                adjustments?.Dispose();
+
+                if (_anchor)
+                    cameraTransform.SetPositionAndRotation(previousPosition, previousRotation);
 
                 foreach (var hudRenderer in hiddenRenderers)
                     hudRenderer.enabled = true;
@@ -203,8 +213,8 @@ namespace BoneSnap.SDK
         {
             if (_screenTexture is { } screenTexture && screenTexture && ScreenCopy.IsScreenSized(screenTexture))
             {
-                // Reading the copy target every frame stops Unity from writing new copies into it
-                // (observed on D3D11). Reading every other frame keeps it updating.
+                // Reading the copy target every frame stops Unity from writing new copies into it, for some reason?
+                // It may just be a D3D11 issue, unsure if it happens on Quest.
                 if (Time.frameCount % 2 == 0)
                     ScreenCopy.BlitUpright(screenTexture, GetTexture(screenTexture.width, screenTexture.height));
             }

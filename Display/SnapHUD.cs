@@ -1,4 +1,5 @@
-﻿using Il2CppTMPro;
+﻿using BoneSnap.Capture;
+using Il2CppTMPro;
 using MelonLoader;
 using UnityEngine;
 
@@ -10,13 +11,20 @@ namespace BoneSnap.SDK
     public class IdleState : ISnapHUDState
     {}
 
-    public class CountdownState(float duration, Camera? previewCamera = null, Transform? previewAnchor = null, bool previewScreen = false) : ISnapHUDState
+    public class PreviewState(Camera? previewCamera = null, Transform? previewAnchor = null, bool previewScreen = false, Func<CaptureParams>? previewParams = null) : ISnapHUDState
     {
-        public float Duration = duration;
         public Camera? PreviewCamera = previewCamera;
         public Transform? PreviewAnchor = previewAnchor;
         // Preview the game window instead of PreviewCamera
         public bool PreviewScreen = previewScreen;
+        // Camera adjustments to apply to PreviewCamera's renders
+        public Func<CaptureParams>? PreviewParams = previewParams;
+    }
+
+    public class CountdownState(float duration, Camera? previewCamera = null, Transform? previewAnchor = null, bool previewScreen = false, Func<CaptureParams>? previewParams = null)
+        : PreviewState(previewCamera, previewAnchor, previewScreen, previewParams)
+    {
+        public float Duration = duration;
     }
     
     public class EncodingInProgressState : ISnapHUDState
@@ -63,6 +71,16 @@ namespace BoneSnap.SDK
         private static bool PreviewEnabled => Main.Prefs.ShowPreview.Value;
 
         private static SnapHUD _instance;
+
+        /// <summary>
+        /// Raised after the HUD swaps state.
+        /// </summary>
+        public static event Action? StateChanged;
+
+        /// <summary>
+        /// Whether the HUD is showing a preview without a countdown.
+        /// </summary>
+        public static bool IsPreviewing => _instance && _instance._currentState is PreviewState and not CountdownState;
         
         /// <summary>
         /// Gets the current Instance (or creates one if it doesn't exist).
@@ -189,23 +207,32 @@ namespace BoneSnap.SDK
                     _textMesh.enabled = true;
                     TransitionIn(BoneLib.Player.Head);
                     break;
+                case PreviewState preview:
+                    this.enabled = true;
+                    // No timer, just the preview
+                    _textMesh.enabled = false;
+                    _textMesh.alpha = 1;
+                    TransitionIn(BoneLib.Player.Head);
+                    break;
             }
 
-            // Swap to live preview
-            if (state is CountdownState countdownState)
+            // Swap to live preview. Previews requested directly are shown regardless of the countdown preview setting
+            if (state is PreviewState previewState)
             {
-                if (!PreviewEnabled)
+                if (state is CountdownState && !PreviewEnabled)
                     _preview.Clear();
-                else if (countdownState.PreviewScreen)
+                else if (previewState.PreviewScreen)
                     _preview.TrackScreen();
-                else if (countdownState.PreviewCamera is { } camera && camera)
-                    _preview.Track(camera, countdownState.PreviewAnchor);
+                else if (previewState.PreviewCamera is { } camera && camera)
+                    _preview.Track(camera, previewState.PreviewAnchor, previewState.PreviewParams);
                 else
                     _preview.Clear();
             }
 
             _stateStart = Time.timeSinceLevelLoad;
             _currentState = state;
+
+            StateChanged?.Invoke();
         }
 
         public void HiUnityExplorerThisIsForDebugging(string text)

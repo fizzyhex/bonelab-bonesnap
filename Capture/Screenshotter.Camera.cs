@@ -5,7 +5,6 @@ using Il2CppSLZ.Bonelab.SaveData;
 using Il2CppSLZ.Marrow.SaveData;
 using MelonLoader;
 using UnityEngine;
-using UnityEngine.Rendering;
 
 namespace BoneSnap.Capture;
 
@@ -16,14 +15,24 @@ internal partial class Screenshotter
 {
     public void PrepareFisheyeCapture(float waitTime, CaptureParams captureParams)
     {
+        var (camera, anchor) = GetFisheyePreviewSource();
+
+        SnapHUD.GetInstance().SwapState(new CountdownState(waitTime, camera, anchor, previewParams: () => captureParams));
+        StartCountdown(waitTime, captureParams, CaptureFisheye);
+    }
+
+    /// <summary>
+    /// Gets the camera that fisheye captures render
+    /// </summary>
+    private (Camera? Camera, Transform? Anchor) GetFisheyePreviewSource()
+    {
         var spectatorReferences = _referenceCache.GetSpectatorReferences();
 
         // The spectator camera only follows the head in fisheye mode
         var followingHead = spectatorReferences.RigScreenOptions?.GetSettings().SpectatorCameraMode == SpectatorCameraMode.Fisheye;
-        var previewAnchor = followingHead ? null : spectatorReferences.Follower?.targetTransform;
+        var anchor = followingHead ? null : spectatorReferences.Follower?.targetTransform;
 
-        SnapHUD.GetInstance().SwapState(new CountdownState(waitTime, spectatorReferences.Camera, previewAnchor));
-        StartCountdown(waitTime, captureParams, CaptureFisheye);
+        return (spectatorReferences.Camera, anchor);
     }
 
     // ReSharper disable once UnusedMethodReturnValue.Global
@@ -75,10 +84,6 @@ internal partial class Screenshotter
 
         var spectatorSettings = rigScreenOptions.GetSettings();
 
-        var disabledOverrides = captureParams.DisabledVolumeComponents is { Count: > 0 } disabledComponents
-            ? DisableVolumeOverrides(disabledComponents)
-            : [];
-
         var spectatorCameraMode = spectatorSettings.SpectatorCameraMode;
         var enablingFisheye = spectatorCameraMode != SpectatorCameraMode.Fisheye;
 
@@ -95,15 +100,16 @@ internal partial class Screenshotter
 
         try
         {
-            if (TryRender(captureParams with { Camera = spectatorCamera }, out var capture))
-                result.Capture = capture;
+            // Applied after switching modes, in case the switch resets the field of view
+            using (CameraAdjustments.Apply(spectatorCamera, captureParams))
+            {
+                if (TryRender(captureParams with { Camera = spectatorCamera }, out var capture))
+                    result.Capture = capture;
+            }
         }
         finally
         {
             rigScreenOptions.SetSpectatorCamera(spectatorCameraMode, rigScreenOptions.eyeTarget);
-
-            foreach (var volumeComponent in disabledOverrides)
-                volumeComponent.active = true;
         }
     }
 
@@ -203,32 +209,5 @@ internal partial class Screenshotter
             RenderTexture.ReleaseTemporary(linearTexture);
             RenderTexture.ReleaseTemporary(rt);
         }
-    }
-
-    private static List<VolumeComponent> DisableVolumeOverrides(IReadOnlySet<string> componentNames)
-    {
-        var disabledOverrides = new List<VolumeComponent>();
-
-        foreach (var volume in UnityEngine.Object.FindObjectsOfType<Volume>())
-        {
-            if (!volume.isActiveAndEnabled)
-                continue;
-
-            var profile = volume.HasInstantiatedProfile() ? volume.profile : volume.sharedProfile;
-
-            if (profile == null)
-                continue;
-
-            foreach (var volumeComponent in profile.components)
-            {
-                if (!volumeComponent.active || !componentNames.Contains(volumeComponent.GetIl2CppType().Name))
-                    continue;
-
-                volumeComponent.active = false;
-                disabledOverrides.Add(volumeComponent);
-            }
-        }
-
-        return disabledOverrides;
     }
 }

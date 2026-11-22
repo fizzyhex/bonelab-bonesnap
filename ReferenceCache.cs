@@ -1,6 +1,5 @@
 ﻿using Il2CppSLZ.Bonelab;
 using UnityEngine;
-using UnityEngine.Rendering;
 using Object = UnityEngine.Object;
 
 namespace BoneSnap;
@@ -14,7 +13,6 @@ public class ReferenceCache
         public RigScreenOptions? RigScreenOptions;
         public Camera? Camera;
         public SmoothFollower? Follower;
-        public Volume? Volume;
     }
     
     private RigScreenOptions? _rigScreenOptions;
@@ -27,21 +25,17 @@ public class ReferenceCache
 
         var rigScreenOptions = GetRigScreenOptions();
         var spectatorCamera = rigScreenOptions != null ? GetSpectatorCamera(rigScreenOptions) : null;
-        var volume = spectatorCamera != null ? GetVolume(spectatorCamera) : null;
 
         _spectatorReferences = new SpectatorReferences
         {
             RigScreenOptions = GetRigScreenOptions(),
             Camera = spectatorCamera,
-            Follower = spectatorCamera != null ? spectatorCamera.GetComponent<SmoothFollower>() : null,
-            Volume = volume
+            Follower = spectatorCamera != null ? spectatorCamera.GetComponent<SmoothFollower>() : null
         };
         
         return (SpectatorReferences)_spectatorReferences;
     }
     
-    private Volume? GetVolume(Camera spectatorCamera) => spectatorCamera.GetComponent<Volume>();
-
     private RigScreenOptions? GetRigScreenOptions()
     {
         if (_rigScreenOptions)

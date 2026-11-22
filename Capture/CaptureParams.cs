@@ -11,7 +11,8 @@ public readonly record struct CaptureParams(
     IReadOnlySet<string>? DisabledVolumeComponents = null,
     bool ShiftHeadOffset = false,
     RevealMeshesMode RevealMeshes = RevealMeshesMode.None,
-    HideRigsMode HideRigs = HideRigsMode.None)
+    HideRigsMode HideRigs = HideRigsMode.None,
+    float? FieldOfView = null)
 {
     public static CaptureParams FromPreferences(BoneSnapPreferences preferences, Camera? camera = null)
     {
@@ -24,7 +25,8 @@ public readonly record struct CaptureParams(
             Quality: preferences.MainCapturePrefs.CaptureQuality.Value,
             OutputPath: preferences.OutputPath.Value,
             DisabledVolumeComponents: preferences.GetDisabledVolumeComponents(),
-            HideRigs: preferences.HideRigs.Value
+            HideRigs: preferences.HideRigs.Value,
+            FieldOfView: preferences.FieldOfView.Value
         );
     }
 
