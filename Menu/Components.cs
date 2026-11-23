@@ -21,9 +21,9 @@ internal static class Components
     /// <summary>
     /// Non-interactive text, for headings.
     /// </summary>
-    public static FunctionElement CreateHeader(this Page page, string text)
+    public static FunctionElement CreateHeader(this Page page, string text, Color color=default)
     {
-        var label = page.CreateFunction(text, Color.white, null);
+        var label = page.CreateFunction(text, color, null);
         label.SetProperty(ElementProperties.NoBorder);
         return label;
     }

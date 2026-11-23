@@ -88,7 +88,7 @@ namespace BoneSnap.SDK
         public static SnapHUD GetInstance()
         {
             if (!_instance)
-                _instance = new GameObject("BoneSnap HUD").AddComponent<SnapHUD>();
+                _instance = new GameObject("BoneSnap HUD") {transform = { parent = BoneLib.Player.ControllerRig.transform } } .AddComponent<SnapHUD>();
 
             return _instance;
         }
@@ -123,9 +123,11 @@ namespace BoneSnap.SDK
 
         private void LateUpdate()
         {
+            const float lerpMultiplier = 60 * 0.2f;
             var head = BoneLib.Player.Head;
 
-            UpdatePosition(head, Time.deltaTime * 60 * 0.2f);
+            UpdatePosition(head,
+                Time.deltaTime * lerpMultiplier);
             
             if (_currentState is CountdownState countdown)
             {

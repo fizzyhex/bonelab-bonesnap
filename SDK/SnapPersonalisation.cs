@@ -11,7 +11,7 @@ using MelonLoader;
 namespace BoneSnap.SDK
 {
     /// <summary>
-    /// Swings a camera's keychain, and (with BoneSnap installed) applies the player's accent colour and keychain trinket.
+    /// Handles keychain physics, and applies the player's accent colour / trinket.
     /// </summary>
 #if MELONLOADER
     [RegisterTypeInIl2Cpp]
@@ -37,21 +37,24 @@ namespace BoneSnap.SDK
         internal GameObject? AccentSync => accentSync?.Get();
         internal GameObject? TrinketSync => trinketSync?.Get();
 #else
-        [Tooltip("Every renderer slot on this camera using this material is tinted with the player's accent colour")]
         public Material accentMaterial;
-        [Tooltip("First keychain bone, attached to the camera")]
+
+        [Tooltip("Root bone of the keychain")]
         public Transform chainRoot;
-        [Tooltip("Second keychain bone, hanging from the first")]
+
+        [Tooltip("Second bone of the keychain")]
         public Transform chainLink;
-        [Tooltip("Collider-less jointed body driving the first keychain bone, jointed to the camera")]
+
         public Rigidbody chainRootBody;
-        [Tooltip("Collider-less jointed body driving the second keychain bone, jointed to the first")]
+
         public Rigidbody chainLinkBody;
-        [Tooltip("Where the keychain trinket hangs from (the chain's end)")]
+
         public Transform trinketAnchor;
-        [Tooltip("Optional - GameObject with a Fusion RPCString, syncing the spawner's accent colour")]
+
+        [Tooltip("Optional RPCString object for syncing the spawner's accent colour.")]
         public GameObject accentSync;
-        [Tooltip("Optional - GameObject with a Fusion RPCString, syncing the spawner's keychain trinket")]
+
+        [Tooltip("Optional RPCString object for syncing the spawner's trinket.")]
         public GameObject trinketSync;
 
         private Transform ChainRoot => chainRoot;
@@ -79,7 +82,6 @@ namespace BoneSnap.SDK
         {
             _keychain?.Disable();
 #if MELONLOADER
-            // Zone culling disables cameras too, so the style (and its sync) outlives this
             Active.Remove(this);
 #endif
         }
@@ -114,14 +116,10 @@ namespace BoneSnap.SDK
 
         private void Update()
         {
-            // Fusion decides whose style a networked camera shows; everything else shows ours.
             if (!FusionSync.Tick(this))
                 ApplyLocalStyle();
         }
-
-        /// <summary>
-        /// Re-applies the local player's style to every camera showing it, and re-syncs the ones they spawned.
-        /// </summary>
+        
         [HideFromIl2Cpp]
         internal static void RefreshLocalStyles()
         {
@@ -135,10 +133,7 @@ namespace BoneSnap.SDK
             ApplyAccent(AccentColor.CurrentHex);
             ApplyTrinket(Trinkets.LocalSpec);
         }
-
-        /// <summary>
-        /// Tints the camera body and its UI. An empty or invalid hex restores the authored colours.
-        /// </summary>
+        
         [HideFromIl2Cpp]
         internal void ApplyAccent(string hex)
         {
@@ -194,10 +189,7 @@ namespace BoneSnap.SDK
 
             return slots.ToArray();
         }
-
-        /// <summary>
-        /// Hangs a trinket from the keychain, from a serialized <see cref="TrinketSpec"/>. Empty removes it.
-        /// </summary>
+        
         [HideFromIl2Cpp]
         internal void ApplyTrinket(string serializedSpec)
         {
@@ -233,11 +225,7 @@ namespace BoneSnap.SDK
         }
 #endif
     }
-
-    /// <summary>
-    /// Drives the keychain's skinned bones with the prefab's collider-less joint proxies, so the chain can swing
-    /// without touching anything or tugging on the camera.
-    /// </summary>
+    
     internal sealed class KeychainPhysics
     {
         // A proxy this far from where it should hang means the camera teleported (or was pooled)
@@ -271,7 +259,7 @@ namespace BoneSnap.SDK
                 _restRotations[i] = bone.localRotation;
 
                 var proxy = proxies[i];
-                // Out from under the camera, so its interpolated transform never drags the chain around
+                // Move it out from the camera, so it doesn't effect the chain
                 proxy.transform.SetParent(null, true);
 
                 // The bone's +Y runs down the chain, to the next bone
@@ -281,8 +269,9 @@ namespace BoneSnap.SDK
                 proxy.solverIterations = 12;
                 proxy.solverVelocityIterations = 4;
                 proxy.centerOfMass = Vector3.up * (length * .5f);
-                // There are no colliders to derive inertia from, so use a thin rod's
-                proxy.inertiaTensor = Vector3.one * Mathf.Max(proxy.mass * length * length / 3f, 1e-6f);
+
+                const float MinInertia = 0.000001f;
+                proxy.inertiaTensor = Vector3.one * Mathf.Max(proxy.mass * length * length / 3f, MinInertia);
                 proxy.inertiaTensorRotation = Quaternion.identity;
             }
         }
@@ -332,13 +321,12 @@ namespace BoneSnap.SDK
 
         public void LateTick()
         {
-            // Parents first, so each link's world rotation lands after its parent has moved
             for (var i = 0; i < _bones.Length; i++)
                 _bones[i].rotation = _proxies[i].transform.rotation;
         }
 
         /// <summary>
-        /// Puts the chain back at rest under the camera.
+        /// Returns chain to rest.
         /// </summary>
         private void Snap()
         {

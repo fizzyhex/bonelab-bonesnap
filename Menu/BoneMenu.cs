@@ -122,9 +122,12 @@ internal abstract class BoneMenu
         void RenderPersonalisation(Page personalisationPage)
         {
             personalisationPage.RemoveAll();
+            
 
             var accent = AccentColor.Current;
             var palette = preferences.AccentPalette.Value;
+            
+            personalisationPage.CreateHeader($"Colour", color: accent);
 
             personalisationPage.CreateDisplayEnum("Palette", Color.white, palette,
                 [
@@ -161,7 +164,8 @@ internal abstract class BoneMenu
                     ? parsed
                     : Enum.Parse<CatppuccinAccent>(AccentColor.DefaultSwatch);
 
-                personalisationPage.CreateEnum("Colour", accent, swatch, value =>
+                // the label already says "Colour".
+                personalisationPage.CreateEnum(" ", accent, swatch, value =>
                 {
                     preferences.AccentSwatch.Value = value.ToString();
                     OnAccentChanged();
@@ -354,7 +358,7 @@ internal abstract class BoneMenu
 
             hideRigs.SetTooltip("Hides RigManagers on the frame of capture.");
 
-            rigPage.CreateHeader("Spawnables");
+            rigPage.CreateHeader("Handheld Camera");
             
             var shiftHeadOffset = rigPage.CreateBool("Shift Head Offset", Color.white, preferences.ShiftHeadOffset.Value, value =>
             {
