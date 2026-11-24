@@ -15,9 +15,6 @@
       <Reference Include="Assembly-CSharp">
         <HintPath>$(BONELAB_DIR)\MelonLoader\Il2CppAssemblies\Assembly-CSharp.dll</HintPath>
       </Reference>
-      <Reference Include="AudioImportLib">
-        <HintPath>$(BONELAB_DIR)\Mods\AudioImportLib.dll</HintPath>
-      </Reference>
       <Reference Include="BoneLib">
         <HintPath>$(BONELAB_DIR)\Mods\BoneLib.dll</HintPath>
       </Reference>
@@ -117,6 +114,10 @@
       <None Remove="README.md" />
       <None Remove="LICENSE" />
       <None Remove=".gitignore" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <EmbeddedResource Include="Resources\Audio\*.wav" LogicalName="BoneSnap.Audio.%(Filename)%(Extension)" />
     </ItemGroup>
 
     <PropertyGroup>

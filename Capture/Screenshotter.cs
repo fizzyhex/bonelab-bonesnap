@@ -81,10 +81,6 @@ internal partial class Screenshotter
             SnapHUD.GetInstance().SwapState(new IdleState());
     }
 
-    /// <summary>
-    /// Plays the countdown audio if available, then starts <paramref name="capture"/> after <paramref
-    /// name="waitTime"/>.
-    /// </summary>
     private void StartCountdown(float waitTime, CaptureParams captureParams, CaptureStep capture)
     {
         if (AssetManager.CaptureTimerAudio != null)
@@ -107,12 +103,12 @@ internal partial class Screenshotter
                 return;
             }
 
-            if (AssetManager.CaptureCompleteAudio != null) AudioManager.Play(AssetManager.CaptureCompleteAudio);
+            if (AssetManager.CaptureCompleteAudio != null) AudioManager.Play(AssetManager.CaptureCompleteAudio, 0.35f);
         }
     }
 
     /// <summary>
-    /// Runs <paramref name="capture"/>, then encodes and writes the result on another thread.
+    /// Runs capture, and encodes/writes the result on another thread.
     /// </summary>
     private IEnumerator RunCapture(CaptureParams captureParams, CaptureStep capture, Action<Task> onFinished)
     {
