@@ -106,16 +106,16 @@ internal abstract class BoneMenu
             RenderPostProcessingPrefs(GetOrCreatePage(moreOptions, "Post Processing"));
             RenderRigPrefs(GetOrCreatePage(moreOptions, "Rig"));
             RenderCompositing(GetOrCreatePage(moreOptions, "Compositing"));
-            
+    
+            var personalisationPage = GetOrCreatePage(moreOptions, "Personalisation");
+            RenderPersonalisation(personalisationPage);
+            WatchPersonalisation(personalisationPage, () => RenderPersonalisation(personalisationPage));
+
             moreOptions.CreateBool("Capture Preview", Color.white, preferences.ShowPreview.Value, value =>
             {
                 preferences.ShowPreview.Value = value;
                 preferences.ManualSave();
             });
-
-            var personalisationPage = GetOrCreatePage(moreOptions, "Personalisation");
-            RenderPersonalisation(personalisationPage);
-            WatchPersonalisation(personalisationPage, () => RenderPersonalisation(personalisationPage));
 
             RenderOutputPath(moreOptions);
         }
