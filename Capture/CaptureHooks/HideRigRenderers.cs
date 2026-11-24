@@ -1,7 +1,6 @@
 ﻿using BoneLib;
 using Il2CppSLZ.Marrow;
 using UnityEngine;
-using UnityEngine.Rendering;
 
 namespace BoneSnap.Capture.CaptureHooks;
 

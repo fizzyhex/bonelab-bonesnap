@@ -5,6 +5,7 @@ using Il2CppSLZ.Bonelab.SaveData;
 using Il2CppSLZ.Marrow.SaveData;
 using MelonLoader;
 using UnityEngine;
+using UnityEngine.Rendering.Universal;
 
 namespace BoneSnap.Capture;
 
@@ -13,6 +14,11 @@ namespace BoneSnap.Capture;
 /// </summary>
 internal partial class Screenshotter
 {
+    /// Layer used for composited captures.
+    /// 31 is the background layer in Bonelab. It's used by a couple sprite's on UI elements, but it should (hopefully)
+    /// be mostly clear otherwise :P
+    public const int CompositingLayer = 31;
+    
     public void PrepareFisheyeCapture(float waitTime, CaptureParams captureParams)
     {
         var (camera, anchor) = GetFisheyePreviewSource();
@@ -98,13 +104,43 @@ internal partial class Screenshotter
                 spectatorCamera.transform.SetPositionAndRotation(followTarget.position, followTarget.rotation);
         }
 
+        // Prevent lens distortion from warping the colour pass and causing misalignment with the matte
+        if (captureParams.CompositingMode != CompositingMode.Combined)
+        {
+            captureParams = captureParams with
+            {
+                DisabledVolumeComponents = (captureParams.DisabledVolumeComponents ?? new HashSet<string>())
+                    .Union(LensDistortionComponents)
+                    .ToHashSet()
+            };
+        }
+
         try
         {
             // Applied after switching modes, in case the switch resets the field of view
             using (CameraAdjustments.Apply(spectatorCamera, captureParams))
+            using (AutoExposureFreeze.Apply(spectatorCamera))
             {
-                if (TryRender(captureParams with { Camera = spectatorCamera }, out var capture))
-                    result.Capture = capture;
+                CompositingLayer[] layers = captureParams.CompositingMode switch
+                {
+                    CompositingMode.Multiple =>
+                        [Capture.CompositingLayer.PlayerMask, Capture.CompositingLayer.Background, Capture.CompositingLayer.Combined],
+                    CompositingMode.CookieCutout =>
+                        [Capture.CompositingLayer.PlayerCutout, Capture.CompositingLayer.Background, Capture.CompositingLayer.Combined],
+                    _ => [Capture.CompositingLayer.Combined]
+                };
+
+                // All passes render in the same frame, so they line up when composited
+                var captures = new List<RawCapture>();
+
+                foreach (var layer in layers)
+                {
+                    if (TryRender(captureParams with { Camera = spectatorCamera, CompositingLayer = layer }, out var capture))
+                        captures.Add(capture);
+                }
+
+                if (captures.Count > 0)
+                    result.Captures = captures.ToArray();
             }
         }
         finally
@@ -116,7 +152,7 @@ internal partial class Screenshotter
     private static IEnumerator CaptureCamera(CaptureParams captureParams, CaptureResult result)
     {
         if (TryRender(captureParams, out var capture))
-            result.Capture = capture;
+            result.Captures = [capture];
         
         yield break;
     }
@@ -152,9 +188,45 @@ internal partial class Screenshotter
             var stopwatch = Stopwatch.StartNew();
             captureHooks.PreCapture(captureParams);
 
-            var captureTexture = RenderCamera(captureParams.Camera, width, height);
-            capture = ReadRawCapture(captureTexture, captureParams.Quality);
+            Texture2D captureTexture;
+
+            // Some post-processing effects cause issues with transparency & misalignment (HBAO)
+            using (IsPlayerLayer(captureParams.CompositingLayer)
+                       ? CameraAdjustments.Apply(captureParams.Camera, captureParams with
+                       {
+                           DisabledVolumeComponents = PostProcessingEffect.AllVolumeComponents,
+                           FieldOfView = null
+                       })
+                       : null)
+            {
+                captureTexture = RenderCamera(captureParams.Camera,
+                    width,
+                    height,
+                    captureParams.CompositingLayer);
+            }
+
+            // The matte above has no post-processing, so masks take their colour from a second, post-processed
+            // render
+            Texture2D? colorTexture = null;
+
+            if (captureParams.CompositingLayer == Capture.CompositingLayer.PlayerMask)
+            {
+                colorTexture = RenderCamera(captureParams.Camera,
+                    width,
+                    height,
+                    captureParams.CompositingLayer,
+                    keepPostProcessing: true);
+            }
+
+            capture = ReadRawCapture(captureTexture, captureParams.Quality, captureParams.CompositingLayer) with
+            {
+                ColorPixels = colorTexture?.GetRawTextureData()
+            };
+
             UnityEngine.Object.Destroy(captureTexture);
+
+            if (colorTexture != null)
+                UnityEngine.Object.Destroy(colorTexture);
 
             MelonLogger.Msg(ConsoleColor.Green, $"- Taken! (render {stopwatch.ElapsedMilliseconds} ms)");
         }
@@ -166,6 +238,14 @@ internal partial class Screenshotter
 
         return true;
     }
+
+    private static readonly IReadOnlySet<string> LensDistortionComponents = PostProcessingEffect.All
+        .Where(effect => effect.Key == "LensDistortion")
+        .SelectMany(effect => effect.VolumeComponents)
+        .ToHashSet();
+
+    private static bool IsPlayerLayer(CompositingLayer layer)
+        => layer is Capture.CompositingLayer.PlayerMask or Capture.CompositingLayer.PlayerCutout;
 
     public static (int Width, int Height) ClampToMaxTextureSize(int width, int height)
     {
@@ -182,23 +262,51 @@ internal partial class Screenshotter
         return (clampedWidth, clampedHeight);
     }
 
-    private static Texture2D RenderCamera(Camera camera, int width, int height)
+    private static Texture2D RenderCamera(Camera camera, int width, int height, CompositingLayer compositing,
+        bool keepPostProcessing = false)
     {
         var previousTargetTexture = camera.targetTexture;
 
-        // Auto exposure multiplies gamma-encoded colours when the camera targets an sRGB texture, which blows out
+        // Auto-exposure multiplies gamma-encoded colours when the camera targets an sRGB texture, which blows out
         // the image compared to the game window. So we have to render as linear, then encode to sRGB with a blit
 
         var linearTexture = RenderTexture.GetTemporary(width, height, 24, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear);
         var rt = RenderTexture.GetTemporary(width, height, 0, RenderTextureFormat.Default, RenderTextureReadWrite.sRGB);
 
+        var oldCullingMask = camera.cullingMask;
+        var oldClearFlags = camera.clearFlags;
+
+        var cameraData = camera.GetComponent<UniversalAdditionalCameraData>();
+        var oldRenderPostProcessing = cameraData && cameraData.renderPostProcessing;
+        var oldBackgroundColor = camera.backgroundColor;
+
         try
         {
+            if (compositing == Capture.CompositingLayer.Background)
+            {
+                // Exclude players
+                camera.cullingMask &= ~(1 << CompositingLayer);
+            }
+            else if (IsPlayerLayer(compositing))
+            {
+                // Players only
+                camera.cullingMask = 1 << CompositingLayer;
+                camera.clearFlags = CameraClearFlags.SolidColor;
+                camera.backgroundColor = Color.clear;
+
+                // URP 12's post-processing writes alpha = 1, which wipes out the transparent background
+                // Can mess with changing this when Bonelab gets a Unity upgrade eventually ;-;...
+                if (cameraData && !keepPostProcessing)
+                {
+                    cameraData.renderPostProcessing = false;
+                }
+            }
+            
             camera.targetTexture = linearTexture;
             camera.Render();
             Graphics.Blit(linearTexture, rt);
 
-            var captureTexture = ReadPixels(rt);
+            var captureTexture = ReadPixels(rt, transparent: IsPlayerLayer(compositing) && !keepPostProcessing);
             SnapHUD.GetInstance().FreezePreview(rt);
 
             return captureTexture;
@@ -206,6 +314,13 @@ internal partial class Screenshotter
         finally
         {
             camera.targetTexture = previousTargetTexture;
+            camera.cullingMask = oldCullingMask;
+            camera.clearFlags = oldClearFlags;
+            camera.backgroundColor = oldBackgroundColor;
+
+            if (cameraData)
+                cameraData.renderPostProcessing = oldRenderPostProcessing;
+
             RenderTexture.ReleaseTemporary(linearTexture);
             RenderTexture.ReleaseTemporary(rt);
         }

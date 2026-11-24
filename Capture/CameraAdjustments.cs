@@ -5,8 +5,7 @@ using UnityEngine.Rendering.Universal;
 namespace BoneSnap.Capture;
 
 /// <summary>
-/// Temporarily applies the field of view and post-processing settings from <see cref="CaptureParams"/> until
-/// destroyed.
+/// Temporarily applies the field of view and post-processing settings from <see cref="CaptureParams"/>.
 /// </summary>
 internal sealed class CameraAdjustments : IDisposable
 {
@@ -65,10 +64,9 @@ internal sealed class CameraAdjustments : IDisposable
         return disabledOverrides;
     }
 
-    private static LayerMask GetVolumeLayerMask(Camera camera)
+    public static LayerMask GetVolumeLayerMask(Camera camera)
     {
         var cameraData = camera.GetComponent<UniversalAdditionalCameraData>();
-        // Use the URP fallback for cameras without UniversalAdditionalCameraData
         return cameraData ? cameraData.volumeLayerMask : 1;
     }
 }

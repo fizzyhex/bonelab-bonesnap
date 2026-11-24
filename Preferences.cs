@@ -1,4 +1,5 @@
-﻿using MelonLoader;
+﻿using BoneSnap.Capture;
+using MelonLoader;
 using MelonLoader.Utils;
 
 namespace BoneSnap;
@@ -48,6 +49,16 @@ public enum AccentPalette
     Hex
 }
 
+public enum CompositingMode
+{
+    /// Default - keeps the camera's current layer mask.
+    Combined,
+    /// Produces separate snaps for the players and the background.
+    Multiple,
+    /// Cuts the player out from the combined pass to retain scene lighting.
+    CookieCutout
+}
+
 public readonly record struct PostProcessingEffect(string Key, string DisplayName, string[] VolumeComponents)
 {
     // Effects the spectator camera renders
@@ -73,6 +84,9 @@ public readonly record struct PostProcessingEffect(string Key, string DisplayNam
         new("LensDistortion", "Lens Distortion", ["LensDistortion"]),
         new("AmbientOcclusion", "Ambient Occlusion", ["HBAO"])
     ];
+
+    public static readonly IReadOnlySet<string> AllVolumeComponents =
+        All.SelectMany(effect => effect.VolumeComponents).ToHashSet();
 }
 
 public readonly struct BoneSnapPreferences(MelonPreferences_Category category)
@@ -97,9 +111,6 @@ public readonly struct BoneSnapPreferences(MelonPreferences_Category category)
 
     public readonly MelonPreferences_Entry<bool> ShowPreview = category.CreateEntry("ShowPreview", true);
 
-    // The spectator camera's field of view in fisheye mode
-    public const float DefaultFieldOfView = 78f;
-
     public readonly MelonPreferences_Entry<float> FieldOfView = category.CreateEntry("FieldOfView", DefaultFieldOfView);
 
     public readonly MelonPreferences_Entry<AccentPalette> AccentPalette =
@@ -112,7 +123,12 @@ public readonly struct BoneSnapPreferences(MelonPreferences_Category category)
     public readonly MelonPreferences_Entry<string> KeychainBarcode = category.CreateEntry("KeychainBarcode", string.Empty);
 
     public readonly MelonPreferences_Entry<string> KeychainAdjustments = category.CreateEntry("KeychainAdjustments", "{}");
+    
+    public readonly MelonPreferences_Entry<CompositingMode> CompositingMode = category.CreateEntry("CompositingMode", BoneSnap.CompositingMode.Combined);
 
+    // The spectator camera's field of view in fisheye mode
+    public const float DefaultFieldOfView = 78f;
+    
     // Only used by the Advanced preset
     public readonly Dictionary<string, MelonPreferences_Entry<bool>> PostProcessingEffects =
         CreatePostProcessingEntries(category);

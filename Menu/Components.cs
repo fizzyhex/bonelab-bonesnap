@@ -19,6 +19,16 @@ internal static class Components
     }
     
     /// <summary>
+    /// Styled version of <see cref="CreateLabel"/>
+    /// </summary>
+    public static FunctionElement CreateWarningLabel(this Page page, string text)
+    {
+        var label = page.CreateFunction(text, new Color(255, 183, 69), null);
+        label.SetProperty(ElementProperties.NoBorder);
+        return label;
+    }
+    
+    /// <summary>
     /// Non-interactive text, for headings.
     /// </summary>
     public static FunctionElement CreateHeader(this Page page, string text, Color color=default)

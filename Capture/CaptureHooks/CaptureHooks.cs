@@ -2,7 +2,7 @@
 
 public class CaptureHooks
 {
-    private readonly ICaptureHook[] _hooks = [new RevealLocalMeshes(), new HideRigRenderers(), new HideHUD()];
+    private readonly ICaptureHook[] _hooks = [new RevealLocalMeshes(), new HideRigRenderers(), new HideHUD(), new CompositingLayers()];
 
     public void PreCapture(CaptureParams captureParams)
     {

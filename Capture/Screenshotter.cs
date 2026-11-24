@@ -15,12 +15,10 @@ using static BoneSnap.CoroutineUtils;
 namespace BoneSnap.Capture;
 
 /// <summary>
-/// Runs captures and writes the results to disk.
+/// Responsible for taking/encoding snaps.
 /// <list type="bullet">
-/// <item><c>Screenshotter.Camera.cs</c> renders a camera for fisheye and SDK
-/// captures.</item>
-/// <item><c>Screenshotter.Screen.cs</c> copies the game window for screen
-/// captures.</item>
+/// <item><c>Screenshotter.Camera.cs</c>: Fisheye and SDK Captures</item>
+/// <item><c>Screenshotter.Screen.cs</c>: Screen Captures</item>
 /// </list>
 /// </summary>
 internal partial class Screenshotter
@@ -43,19 +41,24 @@ internal partial class Screenshotter
         _referenceCache = referenceCache;
     }
 
-    private readonly record struct RawCapture(Il2CppStructArray<byte> Pixels, GraphicsFormat Format, int Width, int Height, int Quality);
+    private readonly record struct RawCapture(
+        Il2CppStructArray<byte> Pixels,
+        GraphicsFormat Format,
+        int Width,
+        int Height,
+        int Quality,
+        CompositingLayer Layer = Capture.CompositingLayer.Combined,
+        // RGB24 colour to combine with this capture's alpha when encoding
+        Il2CppStructArray<byte>? ColorPixels = null);
 
-    /// <summary>
-    /// Output of a <see cref="CaptureStep"/>. Coroutines can't return values.
-    /// </summary>
+    // Encodes can hang when they overlap on attached threads
+    private static readonly object EncodeLock = new();
+
     private sealed class CaptureResult
     {
-        public RawCapture? Capture;
+        public RawCapture[]? Captures;
     }
 
-    /// <summary>
-    /// Coroutine that writes a capture to <paramref name="result"/>. <see cref="CaptureResult.Capture"/> stays null on failure.
-    /// </summary>
     private delegate IEnumerator CaptureStep(CaptureParams captureParams, CaptureResult result);
 
     /// <summary>
@@ -110,10 +113,8 @@ internal partial class Screenshotter
     }
 
     /// <summary>
-    /// Runs <paramref name="capture"/>, then encodes and writes the result on a worker thread.
+    /// Runs <paramref name="capture"/>, then encodes and writes the result on another thread.
     /// </summary>
-    /// <param name="onFinished">Called on the main thread with the completed output task. Skipped if <paramref name="capture"/> produced no
-    /// result.</param>
     private IEnumerator RunCapture(CaptureParams captureParams, CaptureStep capture, Action<Task> onFinished)
     {
         var result = new CaptureResult();
@@ -122,22 +123,19 @@ internal partial class Screenshotter
         while (steps.MoveNext())
             yield return steps.Current;
 
-        if (result.Capture is not { } rawCapture)
+        if (result.Captures is not { Length: > 0 } rawCaptures)
             yield break;
 
-        // Poll the output task from the coroutine to keep the callback on the main
-        // thread.
-        var output = OutputCapture(rawCapture, captureParams.OutputPath);
+        // poll the output task from the coroutine to keep the callback on the main
+        // thread
+        var output = OutputCaptures(rawCaptures, captureParams.OutputPath);
 
         while (!output.IsCompleted)
             yield return null;
 
         onFinished(output);
     }
-
-    /// <summary>
-    /// Runs <paramref name="capture"/> with the local <see cref="PlayerAvatarArt"/> disabled when <paramref name="shiftHeadOffset"/> is set.
-    /// </summary>
+    
     private static IEnumerator WithHeadOffsetShifted(bool shiftHeadOffset, IEnumerator capture)
     {
         var disabledAvatarArt = shiftHeadOffset ? DisableLocalAvatarArt() : null;
@@ -173,16 +171,17 @@ internal partial class Screenshotter
         return avatarArt;
     }
 
-    private static RawCapture ReadRawCapture(Texture2D texture, int quality)
-        => new(texture.GetRawTextureData(), texture.graphicsFormat, texture.width, texture.height, quality);
+    private static RawCapture ReadRawCapture(Texture2D texture, int quality,
+        CompositingLayer layer = Capture.CompositingLayer.Combined)
+        => new(texture.GetRawTextureData(), texture.graphicsFormat, texture.width, texture.height, quality, layer);
 
     /// <summary>
     /// Reads <paramref name="source"/> into a new RGB24 texture. Main thread only.
     /// </summary>
-    private static Texture2D ReadPixels(RenderTexture source)
+    private static Texture2D ReadPixels(RenderTexture source, bool transparent=false)
     {
         var previousActiveTexture = RenderTexture.active;
-        var texture = new Texture2D(source.width, source.height, TextureFormat.RGB24, false);
+        var texture = new Texture2D(source.width, source.height, transparent ? TextureFormat.RGBA32 : TextureFormat.RGB24, false);
 
         try
         {
@@ -200,14 +199,22 @@ internal partial class Screenshotter
     private static string GetFormat(int quality) => quality == 100 ? "png" : "jpg";
 
     /// <summary>
-    /// Encodes and writes <paramref name="capture"/> in the background. Call from the main thread!
+    /// Encodes and writes <paramref name="captures"/> in the background as one batch. Call from the main thread!
     /// </summary>
-    private Task OutputCapture(RawCapture capture, string outputPath)
+    private Task OutputCaptures(RawCapture[] captures, string outputPath)
     {
         Directory.CreateDirectory(outputPath);
 
-        var captureName = NewCaptureName(GetFormat(capture.Quality));
-        var output = EncodeAndWriteAsync(capture, outputPath + $"/{captureName}");
+        // Passes share a name so they sort together, e.g. "... 5 Background.png"
+        var baseName = NewCaptureName();
+        var suffixLayers = captures.Length > 1;
+
+        var outputs = captures
+            .Select(capture => (capture, Path: $"{outputPath}/{GetFileName(baseName, capture, suffixLayers)}"))
+            .ToArray();
+
+        LastCaptureFileName = Path.GetFileName(outputs[^1].Path);
+        var output = EncodeAndWriteAsync(outputs);
 
         SnapHUD.GetInstance().SwapState(new EncodingInProgressState());
         MelonCoroutines.Start(WaitForTaskAndThenRunCallback(output, OnOutputFinished));
@@ -217,65 +224,110 @@ internal partial class Screenshotter
         void OnOutputFinished(Task task)
         {
             SnapHUD.GetInstance().SwapState(task.IsCompletedSuccessfully
-                ? new SaveCompleteState(captureName, ((Task<long>)task).Result)
+                ? new SaveCompleteState(suffixLayers ? $"{baseName} (x{captures.Length})" : LastCaptureFileName,
+                    ((Task<long>)task).Result)
                 : new IdleState());
         }
     }
 
-    /// <returns>The time spent encoding, in milliseconds.</returns>
-    private static async Task<long> EncodeAndWriteAsync(RawCapture capture, string filePath)
+    private static Il2CppStructArray<byte> ApplyAlphaMask(Il2CppStructArray<byte> sourceArray,
+        Il2CppStructArray<byte> maskArray, int width, int height)
     {
-        var stopwatch = Stopwatch.StartNew();
+        // ┌────────┬─────────────────┬─────────────────────────────────────┐
+        // │ Format │ Bytes per pixel │ Byte offsets for pixel i            │
+        // ├────────┼─────────────────┼─────────────────────────────────────┤
+        // │ RGB24  │        3        │ R=i*3, G=i*3+1, B=i*3+2             │
+        // │ RGBA32 │        4        │ R=i*4, G=i*4+1, B=i*4+2, A=i*4+3    │
+        // └────────┴─────────────────┴─────────────────────────────────────┘
+        // Use spans to avoid going through interop for each index.
+        
+        var source = sourceArray.AsSpan();
+        var mask = maskArray.AsSpan();
 
-        var bytes = await EncodeAsync(capture);
-        var encodeMs = stopwatch.ElapsedMilliseconds;
+        var output = new Il2CppStructArray<byte>(width * height * 4); // include alpha channel
+        var dst = output.AsSpan();
 
-        LogFileSize(bytes, filePath);
-        await WriteToFileAsync(filePath, bytes);
-        LogOutputCompletion(encodeMs, stopwatch.ElapsedMilliseconds - encodeMs);
+        for (var i = 0; i < width * height; i++)
+        {
+            // colour from the combined pass
+            dst[i * 4] = source[i * 3];
+            dst[i * 4 + 1] = source[i * 3 + 1];
+            dst[i * 4 + 2] = source[i * 3 + 2];
+            // alpha from the mask
+            dst[i * 4 + 3] = mask[i * 4 + 3]; // (byte)(mask[i * 4 + 3] > 0 ? 255 : 0);
+        }
 
-        return encodeMs;
+        return output;
     }
 
     /// <summary>
-    /// Encodes <paramref name="capture"/> on a worker thread, as encoding large captures can take seconds.
+    /// Encodes and writes each capture in turn off the main thread.
     /// </summary>
-    private static Task<byte[]> EncodeAsync(RawCapture capture)
+    private static Task<long> EncodeAndWriteAsync((RawCapture Capture, string Path)[] outputs)
     {
-        // A dedicated thread, so it can be safely attached to (and detached from) the IL2CPP domain
         return Task.Factory.StartNew(() =>
         {
-            var thread = IL2CPP.il2cpp_thread_attach(IL2CPP.il2cpp_domain_get());
+            lock (EncodeLock)
+            {
+                var thread = IL2CPP.il2cpp_thread_attach(IL2CPP.il2cpp_domain_get());
 
-            try
-            {
-                return Encode(capture);
-            }
-            finally
-            {
-                IL2CPP.il2cpp_thread_detach(thread);
+                try
+                {
+                    long totalEncodeMs = 0;
+
+                    foreach (var (capture, path) in outputs)
+                    {
+                        // TODO: decide what happens when one pass fails
+                        var stopwatch = Stopwatch.StartNew();
+
+                        byte[] bytes;
+
+                        var colorPixels = capture.Layer == Capture.CompositingLayer.PlayerCutout
+                            ? outputs.First(x => x.Capture.Layer == Capture.CompositingLayer.Combined).Capture.Pixels
+                            : capture.ColorPixels;
+
+                        if (colorPixels != null)
+                        {
+                            bytes = Encode(capture,
+                                ApplyAlphaMask(colorPixels, capture.Pixels, capture.Width, capture.Height));
+                        }
+                        else
+                        {
+                            bytes = Encode(capture, capture.Pixels);
+                        }
+
+                        var encodeMs = stopwatch.ElapsedMilliseconds;
+
+                        LogFileSize(bytes, path);
+                        File.WriteAllBytes(path, bytes);
+                        LogOutputCompletion(encodeMs, stopwatch.ElapsedMilliseconds - encodeMs);
+
+                        totalEncodeMs += encodeMs;
+                    }
+
+                    return totalEncodeMs;
+                }
+                finally
+                {
+                    IL2CPP.il2cpp_thread_detach(thread);
+                }
             }
         }, TaskCreationOptions.LongRunning);
     }
 
-    private static byte[] Encode(RawCapture capture)
+    private static byte[] Encode(RawCapture capture, Il2CppStructArray<byte> bytes)
     {
-        var pixels = new Il2CppSystem.Array(capture.Pixels.Pointer);
+        var pixels = new Il2CppSystem.Array(bytes.Pointer);
         var width = (uint)capture.Width;
         var height = (uint)capture.Height;
 
-        // Offset JPG quality by one increment so the encoder can reach 100
-        // while the capture quality setting of 100 selects PNG.
-        return GetFormat(capture.Quality) == "png"
+        var output = GetFormat(capture.Quality) == "png"
             ? ImageConversion.EncodeArrayToPNG(pixels, capture.Format, width, height)
             : ImageConversion.EncodeArrayToJPG(pixels, capture.Format, width, height,
                 quality: Mathf.Min(capture.Quality + CapturePrefs.CaptureQualityIncrement, 100));
-    }
-
-    private static async Task WriteToFileAsync(string path, byte[] imageData)
-    {
-        await using var stream = new FileStream(path, FileMode.Create);
-        await stream.WriteAsync(imageData);
+        
+        GC.KeepAlive(bytes); // JIT, please don't snatch our shit.
+        return output;
     }
 
     private static string GenerateTimecode(DateTime time)
@@ -286,15 +338,16 @@ internal partial class Screenshotter
         return datestamp + " " + timestamp;
     }
 
-    private string NewCaptureName(string? format)
+    private string NewCaptureName()
     {
         var timecode = GenerateTimecode(DateTime.Now);
         _screenshotIndex++;
 
-        var result = $"{timecode} {_screenshotIndex}.{format}";
-        LastCaptureFileName = result;
-        return result;
+        return $"{timecode} {_screenshotIndex}";
     }
+
+    private static string GetFileName(string baseName, RawCapture capture, bool suffixLayer)
+        => (suffixLayer ? $"{baseName} {capture.Layer}" : baseName) + "." + GetFormat(capture.Quality);
 
     private static void LogFileSize(byte[] bytes, string filePath)
     {

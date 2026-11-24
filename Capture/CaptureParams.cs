@@ -2,6 +2,18 @@ using UnityEngine;
 
 namespace BoneSnap.Capture;
 
+public enum CompositingLayer
+{
+    /// Default - keeps the camera's current layer mask.
+    Combined,
+    /// Captures just the background with players & held items removed.
+    Background,
+    /// Captures players & their held items.
+    PlayerMask,
+    /// Captures players & their held items - masked out from the combined layer to retain shadows from the scene.
+    PlayerCutout
+}
+
 public readonly record struct CaptureParams(
     Camera? Camera,
     int Width,
@@ -12,9 +24,14 @@ public readonly record struct CaptureParams(
     bool ShiftHeadOffset = false,
     RevealMeshesMode RevealMeshes = RevealMeshesMode.None,
     HideRigsMode HideRigs = HideRigsMode.None,
-    float? FieldOfView = null)
+    float? FieldOfView = null,
+    CompositingMode CompositingMode = CompositingMode.Combined,
+    CompositingLayer CompositingLayer = CompositingLayer.Combined
+    )
 {
-    public static CaptureParams FromPreferences(BoneSnapPreferences preferences, Camera? camera = null)
+    public static CaptureParams FromPreferences(BoneSnapPreferences preferences,
+        Camera? camera = null,
+        CompositingLayer compositingLayer = CompositingLayer.Combined)
     {
         var (width, height) = GetResolution(preferences);
 
@@ -22,11 +39,14 @@ public readonly record struct CaptureParams(
             Camera: camera,
             Width: width,
             Height: height,
-            Quality: preferences.MainCapturePrefs.CaptureQuality.Value,
+            // .jpg doesn't support transparency. We should move to webp in the future though.
+            Quality: compositingLayer == CompositingLayer.Combined ? preferences.MainCapturePrefs.CaptureQuality.Value : 100,
             OutputPath: preferences.OutputPath.Value,
             DisabledVolumeComponents: preferences.GetDisabledVolumeComponents(),
             HideRigs: preferences.HideRigs.Value,
-            FieldOfView: preferences.FieldOfView.Value
+            FieldOfView: preferences.FieldOfView.Value,
+            CompositingMode: preferences.CompositingMode.Value,
+            CompositingLayer: compositingLayer
         );
     }
 

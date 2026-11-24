@@ -40,7 +40,7 @@ internal partial class Screenshotter
             var screenshotTexture = ReadPixels(screenTexture);
             SnapHUD.GetInstance().FreezePreview(screenTexture);
 
-            result.Capture = ReadRawCapture(screenshotTexture, captureParams.Quality);
+            result.Captures = [ReadRawCapture(screenshotTexture, captureParams.Quality)];
             UnityEngine.Object.Destroy(screenshotTexture);
 
             // Clipboard support is disabled because MelonLoader no longer
