@@ -6,6 +6,8 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <DefineConstants>$(DefineConstants);MELONLOADER</DefineConstants>
+        <!-- Stop local builds from compiling against the stubs instead of the game install -->
+        <DefaultItemExcludes>$(DefaultItemExcludes);ReferenceStubs/**</DefaultItemExcludes>
     </PropertyGroup>
 
     <ItemGroup>
