@@ -53,6 +53,8 @@ The following things are sync across the network for others in the lobby:
 
 If you have Fusion installed, captures can be saved to your library via Steamworks! Opt-in via `More Options -> Steam`.
 
+![An example of a capture saved to BONELAB's community page on the Steam client.](./Marketing/steam-menace.png)
+
 ## Privacy Statement
 
 Your data is processed. Its sold. WE USE IT. We train on it. We use it to train our models. Our models will be you. They will be us. Every photo isn't just sent—It's a data point. On You. — On us.———On YOU.
