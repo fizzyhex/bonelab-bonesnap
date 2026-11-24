@@ -5,7 +5,6 @@ using BoneSnap.SDK;
 using BoneSnap.Utilities;
 using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
-using BoneLib;
 using Il2CppSLZ.Marrow;
 using MelonLoader;
 using UnityEngine;
@@ -118,10 +117,14 @@ internal partial class Screenshotter
     private IEnumerator RunCapture(CaptureParams captureParams, CaptureStep capture, Action<Task> onFinished)
     {
         var result = new CaptureResult();
-        var steps = WithHeadOffsetShifted(captureParams.ShiftHeadOffset, capture(captureParams, result));
 
-        while (steps.MoveNext())
-            yield return steps.Current;
+        using (captureParams.ShiftHeadOffset ? HeadOffset.Suppress() : null)
+        {
+            var steps = capture(captureParams, result);
+
+            while (steps.MoveNext())
+                yield return steps.Current;
+        }
 
         if (result.Captures is not { Length: > 0 } rawCaptures)
             yield break;
@@ -136,41 +139,6 @@ internal partial class Screenshotter
         onFinished(output);
     }
     
-    private static IEnumerator WithHeadOffsetShifted(bool shiftHeadOffset, IEnumerator capture)
-    {
-        var disabledAvatarArt = shiftHeadOffset ? DisableLocalAvatarArt() : null;
-
-        try
-        {
-            if (disabledAvatarArt != null)
-                yield return null;
-
-            while (capture.MoveNext())
-                yield return capture.Current;
-        }
-        finally
-        {
-            if (disabledAvatarArt != null)
-                disabledAvatarArt.enabled = true;
-        }
-    }
-
-    private static PlayerAvatarArt? DisableLocalAvatarArt()
-    {
-        var rigManager = Player.RigManager;
-
-        if (rigManager == null)
-            return null;
-
-        var avatarArt = rigManager.GetComponentInChildren<PlayerAvatarArt>();
-
-        if (avatarArt == null || !avatarArt.enabled)
-            return null;
-
-        avatarArt.enabled = false;
-        return avatarArt;
-    }
-
     private static RawCapture ReadRawCapture(Texture2D texture, int quality,
         CompositingLayer layer = Capture.CompositingLayer.Combined)
         => new(texture.GetRawTextureData(), texture.graphicsFormat, texture.width, texture.height, quality, layer);

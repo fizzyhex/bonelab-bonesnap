@@ -1,6 +1,7 @@
 using System.Globalization;
 using BoneLib;
 using BoneSnap.SDK;
+using BoneSnap.Utilities;
 using Il2CppSLZ.Bonelab;
 using Il2CppSLZ.Marrow;
 using Il2CppSLZ.Marrow.Interaction;
@@ -296,7 +297,7 @@ internal static class Trinkets
         var model = CreateChild("Model", pivot, layer);
         model.localPosition = -fit.TopCentre;
 
-        foreach (var (renderer, mesh) in GetVisibleMeshes(prefab))
+        foreach (var (renderer, mesh) in RendererCopy.GetVisibleMeshes(prefab))
         {
             var copy = CreateChild(renderer.name, model, layer);
             var source = renderer.transform;
@@ -384,7 +385,7 @@ internal static class Trinkets
         var found = false;
         var prefabRoot = prefab.transform;
 
-        foreach (var (renderer, mesh) in GetVisibleMeshes(prefab))
+        foreach (var (renderer, mesh) in RendererCopy.GetVisibleMeshes(prefab))
         {
             var meshBounds = mesh.bounds;
             var source = renderer.transform;
@@ -411,59 +412,6 @@ internal static class Trinkets
     {
         bounds = candidate;
         return candidate.size.sqrMagnitude > 1e-8f;
-    }
-
-    /// <summary>
-    /// The prefab's currently enabled meshes - skipping disabled objects and lower LODs.
-    /// </summary>
-    private static List<(Renderer Renderer, Mesh Mesh)> GetVisibleMeshes(GameObject prefab)
-    {
-        var lowerLods = new HashSet<IntPtr>();
-
-        foreach (var lodGroup in prefab.GetComponentsInChildren<LODGroup>(true))
-        {
-            var lods = lodGroup.GetLODs();
-            for (var i = 1; i < lods.Length; i++)
-            {
-                foreach (var lodRenderer in lods[i].renderers)
-                {
-                    if (lodRenderer != null)
-                        lowerLods.Add(lodRenderer.Pointer);
-                }
-            }
-        }
-
-        var meshes = new List<(Renderer, Mesh)>();
-
-        foreach (var renderer in prefab.GetComponentsInChildren<Renderer>(true))
-        {
-            if (!renderer.enabled || lowerLods.Contains(renderer.Pointer) || !IsActive(renderer.transform, prefab.transform))
-                continue;
-
-            Mesh? mesh = null;
-
-            var skinned = renderer.TryCast<SkinnedMeshRenderer>();
-            if (skinned != null)
-                mesh = skinned.sharedMesh;
-            else if (renderer.TryCast<MeshRenderer>() != null)
-                mesh = renderer.GetComponent<MeshFilter>()?.sharedMesh;
-
-            if (mesh != null)
-                meshes.Add((renderer, mesh));
-        }
-
-        return meshes;
-    }
-
-    private static bool IsActive(Transform transform, Transform root)
-    {
-        for (var current = transform; current != null && current != root; current = current.parent)
-        {
-            if (!current.gameObject.activeSelf)
-                return false;
-        }
-
-        return true;
     }
 
     private static Transform CreateChild(string name, Transform parent, int layer)

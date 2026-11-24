@@ -72,6 +72,9 @@ internal partial class Screenshotter
     /// </summary>
     private IEnumerator CaptureFisheye(CaptureParams captureParams, CaptureResult result)
     {
+        if (captureParams.ShiftHeadOffset)
+            yield return new WaitForEndOfFrame();
+
         var spectatorReferences = _referenceCache.GetSpectatorReferences();
         var spectatorCamera = spectatorReferences.Camera;
         var rigScreenOptions = spectatorReferences.RigScreenOptions;
@@ -104,7 +107,8 @@ internal partial class Screenshotter
                 spectatorCamera.transform.SetPositionAndRotation(followTarget.position, followTarget.rotation);
         }
 
-        // Prevent lens distortion from warping the colour pass and causing misalignment with the matte
+        // Disable lens distortion even when Camera Overrides is off to keep the colour pass aligned with
+        // the matte.
         if (captureParams.CompositingMode != CompositingMode.Combined)
         {
             captureParams = captureParams with
@@ -117,7 +121,6 @@ internal partial class Screenshotter
 
         try
         {
-            // Applied after switching modes, in case the switch resets the field of view
             using (CameraAdjustments.Apply(spectatorCamera, captureParams))
             using (AutoExposureFreeze.Apply(spectatorCamera))
             {
@@ -130,7 +133,6 @@ internal partial class Screenshotter
                     _ => [Capture.CompositingLayer.Combined]
                 };
 
-                // All passes render in the same frame, so they line up when composited
                 var captures = new List<RawCapture>();
 
                 foreach (var layer in layers)
@@ -151,10 +153,11 @@ internal partial class Screenshotter
 
     private static IEnumerator CaptureCamera(CaptureParams captureParams, CaptureResult result)
     {
+        if (captureParams.ShiftHeadOffset)
+            yield return new WaitForEndOfFrame();
+
         if (TryRender(captureParams, out var capture))
             result.Captures = [capture];
-        
-        yield break;
     }
 
     /// <summary>
@@ -205,8 +208,6 @@ internal partial class Screenshotter
                     captureParams.CompositingLayer);
             }
 
-            // The matte above has no post-processing, so masks take their colour from a second, post-processed
-            // render
             Texture2D? colorTexture = null;
 
             if (captureParams.CompositingLayer == Capture.CompositingLayer.PlayerMask)
@@ -294,8 +295,8 @@ internal partial class Screenshotter
                 camera.clearFlags = CameraClearFlags.SolidColor;
                 camera.backgroundColor = Color.clear;
 
-                // URP 12's post-processing writes alpha = 1, which wipes out the transparent background
-                // Can mess with changing this when Bonelab gets a Unity upgrade eventually ;-;...
+                // URP 12's post-processing doesn't properly support transparency.
+                // Can mess with changing this when Bonelab gets a Unity upgrade eventually, hahaaaa.... ;-;
                 if (cameraData && !keepPostProcessing)
                 {
                     cameraData.renderPostProcessing = false;

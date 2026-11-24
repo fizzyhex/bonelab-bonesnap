@@ -13,9 +13,6 @@ internal static class ScreenCopy
 
     public static bool IsScreenSized(RenderTexture texture) => texture.width == Screen.width && texture.height == Screen.height;
 
-    /// <summary>
-    /// Blits a window copy into <paramref name="destination"/> upright.
-    /// </summary>
     /// <remarks>
     /// The graphics UV conventions vary per platform. Quest uses Vulkan instead of D3D, for example.
     /// See https://docs.unity.com/en-us/engine/6000.6/script-reference/unityengine/systeminfo/graphicsuvstartsattop
@@ -27,5 +24,14 @@ internal static class ScreenCopy
         
         else
             Graphics.Blit(source, destination, new Vector2(1, -1), new Vector2(0, 1));
+    }
+
+    public static void BlitWindowCopy(Texture source, RenderTexture destination)
+    {
+        if (SystemInfo.graphicsUVStartsAtTop)
+            Graphics.Blit(source, destination, new Vector2(1, -1), new Vector2(0, 1));
+
+        else
+            Graphics.Blit(source, destination);
     }
 }

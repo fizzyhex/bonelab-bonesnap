@@ -216,7 +216,7 @@ namespace BoneSnap.SDK
                 // Reading the copy target every frame stops Unity from writing new copies into it, for some reason?
                 // It may just be a D3D11 issue, unsure if it happens on Quest.
                 if (Time.frameCount % 2 == 0)
-                    ScreenCopy.BlitUpright(screenTexture, GetTexture(screenTexture.width, screenTexture.height));
+                    ScreenCopy.BlitWindowCopy(screenTexture, GetTexture(screenTexture.width, screenTexture.height));
             }
             else
             {

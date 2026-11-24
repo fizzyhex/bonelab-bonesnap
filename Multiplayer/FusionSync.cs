@@ -1,9 +1,14 @@
 using System.Runtime.CompilerServices;
+using BoneSnap.Cloning;
 using BoneSnap.Personalisation;
 using BoneSnap.SDK;
+using LabFusion.Entities;
 using LabFusion.Marrow.Integration;
+using LabFusion.Network;
+using LabFusion.Network.Serialization;
 using LabFusion.Scene;
 using LabFusion.SDK.Extenders;
+using LabFusion.SDK.Modules;
 using MelonLoader;
 using UnityEngine;
 
@@ -13,7 +18,25 @@ internal static class FusionSync
 {
     private static bool? _isAvailable;
 
-    private static bool IsAvailable => _isAvailable ??= MelonBase.RegisteredMelons.Any(melon => melon.Info.Name == "LabFusion");
+    public static bool IsAvailable => _isAvailable ??= MelonBase.RegisteredMelons.Any(melon => melon.Info.Name == "LabFusion");
+
+    public static void Initialize()
+    {
+        if (IsAvailable)
+            FusionBridge.RegisterMessages();
+    }
+
+    public static void SendCloneCreated(int id, bool includeHeld)
+    {
+        if (IsAvailable)
+            FusionBridge.SendClone(CloneAction.Create, id, includeHeld);
+    }
+
+    public static void SendCloneDeleted(int id)
+    {
+        if (IsAvailable)
+            FusionBridge.SendClone(CloneAction.Delete, id, false);
+    }
 
     public static bool Tick(SnapPersonalisation camera) => IsAvailable && FusionBridge.Tick(camera);
 
@@ -119,6 +142,19 @@ internal static class FusionBridge
     [MethodImpl(MethodImplOptions.NoInlining)]
     public static void Forget(SnapPersonalisation camera) => States.Remove(camera);
 
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void RegisterMessages() => ModuleMessageManager.RegisterHandler<CloneMessage>();
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void SendClone(CloneAction action, int id, bool includeHeld)
+    {
+        if (!NetworkInfo.HasServer)
+            return;
+
+        var data = new CloneData { Action = (byte)action, Id = id, IncludeHeld = includeHeld };
+        MessageRelay.RelayModule<CloneMessage, CloneData>(data, CommonMessageRoutes.ReliableToOtherClients);
+    }
+
     private static State GetState(SnapPersonalisation camera)
     {
         if (States.TryGetValue(camera, out var state))
@@ -150,5 +186,53 @@ internal static class FusionBridge
         var prefix = $"{entityId}:";
 
         return value != null && value.StartsWith(prefix, StringComparison.Ordinal) ? value[prefix.Length..] : string.Empty;
+    }
+}
+
+internal enum CloneAction : byte
+{
+    Create,
+    Delete
+}
+
+internal sealed class CloneData : INetSerializable
+{
+    public byte Action;
+    public int Id;
+    public bool IncludeHeld;
+
+    public int? GetSize() => sizeof(byte) + sizeof(int) + sizeof(bool);
+
+    public void Serialize(INetSerializer serializer)
+    {
+        serializer.SerializeValue(ref Action);
+        serializer.SerializeValue(ref Id);
+        serializer.SerializeValue(ref IncludeHeld);
+    }
+}
+
+/// <summary>
+/// Recreates another player's avatar clones by baking their rig as seen locally.
+/// </summary>
+[Net.SkipHandleWhileLoading]
+internal sealed class CloneMessage : ModuleMessageHandler
+{
+    protected override void OnHandleMessage(ReceivedMessage received)
+    {
+        if (received.Sender is not { } sender)
+            return;
+
+        var data = received.ReadData<CloneData>();
+
+        switch ((CloneAction)data.Action)
+        {
+            case CloneAction.Create:
+                if (NetworkPlayerManager.TryGetPlayer(sender, out var player) && player.HasRig)
+                    AvatarClones.Create(player.RigRefs.RigManager, data.IncludeHeld, sender, data.Id);
+                break;
+            case CloneAction.Delete:
+                AvatarClones.DeleteRemote(sender, data.Id);
+                break;
+        }
     }
 }

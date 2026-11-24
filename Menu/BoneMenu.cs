@@ -2,7 +2,9 @@
 using BoneLib;
 using BoneLib.BoneMenu;
 using BoneSnap.Capture;
+using BoneSnap.Cloning;
 using BoneSnap.Extensions;
+using BoneSnap.Multiplayer;
 using BoneSnap.Personalisation;
 using BoneSnap.SDK;
 using MelonLoader;
@@ -20,6 +22,7 @@ internal abstract class BoneMenu
     private static bool _watching;
     private static Action? _renderPersonalisation;
     private static Page? _personalisationPage;
+    private static Action? _renderCloning;
     private static string? _adjustingBarcode;
     private static readonly Dictionary<(Page Parent, string Name), Page> ChildPages = new();
     private static readonly Dictionary<Page, FunctionElement> PreviewButtons = new();
@@ -34,7 +37,7 @@ internal abstract class BoneMenu
             
         page.CreateFunction(
             "Snap!",
-            Color.cyan,
+            AccentColor.Current,
             () =>
             {
                 var waitTime = preferences.MainCapturePrefs.CaptureDelay.Value;
@@ -102,10 +105,13 @@ internal abstract class BoneMenu
             var moreOptions = GetOrCreatePage(page, "More Options!");
             moreOptions.RemoveAll();
 
-            RenderCameraAdjustments(GetOrCreatePage(moreOptions, "Camera Adjustments"));
-            RenderPostProcessingPrefs(GetOrCreatePage(moreOptions, "Post Processing"));
+            RenderCameraOverrides(GetOrCreatePage(moreOptions, "Camera Overrides"));
             RenderRigPrefs(GetOrCreatePage(moreOptions, "Rig"));
             RenderCompositing(GetOrCreatePage(moreOptions, "Compositing"));
+
+            var cloningPage = GetOrCreatePage(moreOptions, "Avatar Cloning");
+            RenderAvatarCloning(cloningPage);
+            WatchClones(() => RenderAvatarCloning(cloningPage));
     
             var personalisationPage = GetOrCreatePage(moreOptions, "Personalisation");
             RenderPersonalisation(personalisationPage);
@@ -387,12 +393,82 @@ internal abstract class BoneMenu
                                     "This shows the selected meshes on the frame the capture is taken.");
         }
 
-        void RenderCameraAdjustments(Page cameraPage)
+        void RenderCameraOverrides(Page overridesPage)
+        {
+            overridesPage.RemoveAll();
+
+            var enabled = preferences.CameraOverrides.Value;
+
+            overridesPage.CreateFunction(enabled ? "Disable Overrides" : "Enable Overrides", AccentColor.Current, () =>
+            {
+                preferences.CameraOverrides.Value = !enabled;
+                preferences.ManualSave();
+                RenderCameraOverrides(overridesPage);
+            });
+
+            if (!enabled)
+                return;
+
+            RenderFieldOfView(GetOrCreatePage(overridesPage, "Field of View"));
+            RenderPostProcessingPrefs(GetOrCreatePage(overridesPage, "Post Processing"));
+        }
+
+        void RenderAvatarCloning(Page cloningPage)
+        {
+            cloningPage.RemoveAll();
+
+            var delay = cloningPage.CreateFloat("Clone Delay", Color.white, preferences.CloneDelay.Value, .5f, 0f, 60f, value =>
+            {
+                preferences.CloneDelay.Value = value;
+                preferences.ManualSave();
+            });
+
+            cloningPage.CreateBool("Include Held Items", Color.white, preferences.CloneIncludeHeldItems.Value, value =>
+            {
+                preferences.CloneIncludeHeldItems.Value = value;
+                preferences.ManualSave();
+            });
+
+            if (FusionSync.IsAvailable)
+            {
+                var fusionSync = cloningPage.CreateBool("Fusion Sync", Color.white, AvatarClones.FusionSyncEnabled,
+                    value => AvatarClones.FusionSyncEnabled = value);
+
+                fusionSync.SetTooltip("Allows other players in the lobby to see your clones. " +
+                                      "This needs to be re-enabled each time you launch the game.");
+            }
+
+            cloningPage.CreateFunction("Clone Avatar", Color.white, () =>
+                AvatarClones.CloneLocalAfterDelay(preferences.CloneDelay.Value, preferences.CloneIncludeHeldItems.Value));
+
+            var clones = AvatarClones.Local;
+
+            if (clones.Count == 0)
+            {
+                return;
+            }
+
+            var managePage = GetOrCreatePage(cloningPage, "Manage Clones", $"Manage Clones ({clones.Count})");
+            managePage.RemoveAll();
+
+            for (var i = 0; i < clones.Count; i++)
+            {
+                var clone = clones[i];
+
+                managePage.CreateConfirmFunction($"Clone {i + 1}", Color.white,
+                    onConfirmed: () => AvatarClones.Delete(clone),
+                    onArmed: () => CloneHighlighter.Show(clone),
+                    onReset: () => CloneHighlighter.Hide(clone),
+                    confirmText: "Delete?");
+            }
+        }
+
+        void RenderFieldOfView(Page cameraPage)
         {
             cameraPage.RemoveAll();
             CreatePreviewButton(cameraPage, preferences, screenshotter);
 
-            var fieldOfView = cameraPage.CreateFloat("Field of View", Color.white, preferences.FieldOfView.Value, 5f, 10f, 170f, value =>
+            cameraPage.CreateFloat("Field of View", Color.white, preferences.FieldOfView.Value, 5f, 10f, 170f, value =>
             {
                 preferences.FieldOfView.Value = value;
                 preferences.ManualSave();
@@ -402,7 +478,7 @@ internal abstract class BoneMenu
             {
                 preferences.FieldOfView.Value = BoneSnapPreferences.DefaultFieldOfView;
                 preferences.ManualSave();
-                RenderCameraAdjustments(cameraPage);
+                RenderFieldOfView(cameraPage);
             });
         }
 
@@ -436,7 +512,7 @@ internal abstract class BoneMenu
             
             // BoneMenu tooltips truncate at 6 lines, so this can go here :P 
             var whichToUse = compositingPage.CreateLabel("Suggestion");
-            whichToUse.SetTooltip("Don't need multiple layers? use <b>Combined</b>. Only use <b>Cookie Cutout</b>if you need shadows on your avatar cast from the scene, otherwise stick to <b>Multiple</b>.");
+            whichToUse.SetTooltip("Don't need multiple layers? use <b>Combined</b>. Only use <b>Cookie Cutout</b> if you need shadows on your avatar cast from the scene, otherwise stick to <b>Multiple</b>.");
                 
             compositingPage.CreateWarningLabel("Multi-layer captures are slow! Don't use it if you don't need it.");
         }
@@ -531,25 +607,33 @@ internal abstract class BoneMenu
         }
     }
 
-    private static Page GetOrCreatePage(Page parent, string name)
+    /// <param name="title">Display name, for pages whose name changes. Defaults to <paramref name="name"/>.</param>
+    private static Page GetOrCreatePage(Page parent, string name, string? title = null)
     {
-        // Redraws remove the links BoneLib uses to find child pages.
-        // Reuse the original page so players already viewing it see the updates.
+        title ??= name;
+        title = $"{title} <color=grey>›</color>";
+
         if (ChildPages.TryGetValue((parent, name), out var existing))
         {
-            if (!parent.TryGetChildPage(name, out _))
+            if (existing.Name != title)
+            {
+                existing.Name = title;
+                existing.RefreshTitle();
+            }
+
+            if (!parent.TryGetChildPage(title, out _))
                 parent.CreatePageLink(existing);
 
             return existing;
         }
 
-        var created = parent.CreatePage(name, Color.white);
+        var created = parent.CreatePage(title, Color.white);
         ChildPages[(parent, name)] = created;
         return created;
     }
 
     /// <summary>
-    /// Keeps the Change Keychain buttons in sync with what the player is holding, and their clipboard.
+    /// Keeps the Change Keychain buttons in sync with what's held/on the clipboard.
     /// </summary>
     private static void WatchPersonalisation(Page page, Action render)
     {
@@ -565,7 +649,6 @@ internal abstract class BoneMenu
         Hooking.OnReleaseObject += _ => BeginRefresh();
         Hooking.OnLevelLoaded += _ => BeginRefresh();
 
-        // The clipboard & spawn gun selection can change without a grab
         BoneLib.BoneMenu.Menu.OnPageOpened += opened =>
         {
             if (opened == _personalisationPage)
@@ -578,4 +661,16 @@ internal abstract class BoneMenu
     }
 
     public static void RefreshPersonalisation() => _renderPersonalisation?.Invoke();
+
+    /// <summary>
+    /// Keeps the clone count and Manage Clones page in sync as clones are created/deleted.
+    /// </summary>
+    private static void WatchClones(Action render)
+    {
+        var subscribe = _renderCloning == null;
+        _renderCloning = render;
+
+        if (subscribe)
+            AvatarClones.Changed += () => _renderCloning?.Invoke();
+    }
 }

@@ -1,10 +1,13 @@
+using System.Collections;
 using BoneLib.BoneMenu;
+using BoneSnap.Personalisation;
+using MelonLoader;
 using UnityEngine;
 
 namespace BoneSnap.Menu;
 
 /// <summary>
-/// Custom BoneMenu components, built on top of the stock elements.
+/// A couple handy BoneMenu components, built on top of the stock elements.
 /// </summary>
 internal static class Components
 {
@@ -28,16 +31,15 @@ internal static class Components
         return label;
     }
     
-    /// <summary>
-    /// Non-interactive text, for headings.
-    /// </summary>
-    public static FunctionElement CreateHeader(this Page page, string text, Color color=default)
+    public static FunctionElement CreateHeader(this Page page, string text, Color color)
     {
-        var label = page.CreateFunction(text, color, null);
+        var label = page.CreateFunction($"<color=grey>|</color> {text}", color, null);
         label.SetProperty(ElementProperties.NoBorder);
         return label;
     }
     
+    public static FunctionElement CreateHeader(this Page page, string text) => page.CreateHeader(text, Color.white);
+
     /// <summary>
     /// Just a space. :D
     /// </summary>
@@ -46,6 +48,62 @@ internal static class Components
         var label = page.CreateFunction(" ", Color.gray, null);
         label.SetProperty(ElementProperties.NoBorder);
         return label;
+    }
+
+    /// <summary>
+    /// Creates a button that needs to be pressed twice before the action is called.
+    /// </summary>
+    /// <param name="onArmed">Invoked when the confirmation period starts.</param>
+    /// <param name="onReset">Invoked when the confirmation period ends, before <paramref name="onConfirmed"/> if
+    /// confirmed.</param>
+    public static FunctionElement CreateConfirmFunction(this Page page, string name, Color color, Action onConfirmed,
+        Action? onArmed = null, Action? onReset = null, float timeout = 4f, string confirmText="Confirm?")
+    {
+        var armed = false;
+        var armedVersion = 0;
+
+        FunctionElement? element = null;
+        var element1 = element;
+        
+        element = page.CreateFunction(name, color, () =>
+        {
+            if (armed)
+            {
+                Disarm();
+                onConfirmed();
+                return;
+            }
+
+            armed = true;
+            var version = ++armedVersion;
+            element1!.ElementName = confirmText;
+            element1.ElementColor = AccentColor.Current;
+            onArmed?.Invoke();
+
+            MelonCoroutines.Start(DisarmAfter(version));
+        });
+
+        return element;
+
+        void Disarm()
+        {
+            armed = false;
+            armedVersion++;
+            element!.ElementName = name;
+            element.ElementColor = color;
+            onReset?.Invoke();
+        }
+
+        IEnumerator DisarmAfter(int version)
+        {
+            var end = Time.unscaledTime + timeout;
+
+            while (Time.unscaledTime < end)
+                yield return null;
+
+            if (armed && version == armedVersion)
+                Disarm();
+        }
     }
 
     /// <summary>
@@ -60,7 +118,6 @@ internal static class Components
         FunctionElement? element = null;
         element = page.CreateFunction(GetName(), color, () =>
         {
-            // Unknown values restart from the first option
             current = options[(IndexOf(current) + 1) % options.Count].Value;
             element!.ElementName = GetName();
             onChanged(current);

@@ -109,10 +109,10 @@ namespace BoneSnap.SDK
             if (arlon)
             {
                 _textMesh.font = arlon;
-                _textMesh.fontSharedMaterial = arlon.material;
+                _textMesh.fontSharedMaterial = arlon!.material;
             }
             else
-                MelonLogger.Warning("Failed to locate TMP_FontAsset! Falling back to the default TextMeshPro font.");
+                MelonLogger.Warning("Failed to find font");
 
             PreviewQuad.DrawOnTop(_textMesh.fontMaterial);
         }

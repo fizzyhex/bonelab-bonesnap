@@ -34,6 +34,7 @@ public readonly record struct CaptureParams(
         CompositingLayer compositingLayer = CompositingLayer.Combined)
     {
         var (width, height) = GetResolution(preferences);
+        var overrides = preferences.CameraOverrides.Value;
 
         return new CaptureParams(
             Camera: camera,
@@ -42,9 +43,9 @@ public readonly record struct CaptureParams(
             // .jpg doesn't support transparency. We should move to webp in the future though.
             Quality: compositingLayer == CompositingLayer.Combined ? preferences.MainCapturePrefs.CaptureQuality.Value : 100,
             OutputPath: preferences.OutputPath.Value,
-            DisabledVolumeComponents: preferences.GetDisabledVolumeComponents(),
+            DisabledVolumeComponents: overrides ? preferences.GetDisabledVolumeComponents() : null,
             HideRigs: preferences.HideRigs.Value,
-            FieldOfView: preferences.FieldOfView.Value,
+            FieldOfView: overrides ? preferences.FieldOfView.Value : null,
             CompositingMode: preferences.CompositingMode.Value,
             CompositingLayer: compositingLayer
         );

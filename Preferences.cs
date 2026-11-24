@@ -126,6 +126,13 @@ public readonly struct BoneSnapPreferences(MelonPreferences_Category category)
     
     public readonly MelonPreferences_Entry<CompositingMode> CompositingMode = category.CreateEntry("CompositingMode", BoneSnap.CompositingMode.Combined);
 
+    // Master switch for the field of view and post-processing overrides
+    public readonly MelonPreferences_Entry<bool> CameraOverrides = category.CreateEntry("CameraOverrides", true);
+
+    public readonly MelonPreferences_Entry<float> CloneDelay = category.CreateEntry("CloneDelay", 3f);
+
+    public readonly MelonPreferences_Entry<bool> CloneIncludeHeldItems = category.CreateEntry("CloneIncludeHeldItems", true);
+
     // The spectator camera's field of view in fisheye mode
     public const float DefaultFieldOfView = 78f;
     

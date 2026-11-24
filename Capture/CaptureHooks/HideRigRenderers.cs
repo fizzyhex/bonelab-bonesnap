@@ -1,5 +1,4 @@
-﻿using BoneLib;
-using Il2CppSLZ.Marrow;
+﻿using BoneSnap.Utilities;
 using UnityEngine;
 
 namespace BoneSnap.Capture.CaptureHooks;
@@ -10,22 +9,14 @@ namespace BoneSnap.Capture.CaptureHooks;
 public class HideRigRenderers : ICaptureHook
 {
     private readonly List<Renderer> _hidden = [];
-    
+
     private void Hide(HideRigsMode mode)
     {
         _hidden.Clear();
 
-        RigManager[] rigManagers = mode switch
+        foreach (var rigManager in RigQuery.GetRigs(mode))
         {
-            HideRigsMode.Local when Player.RigManager != null => [Player.RigManager],
-            // Includes the rigs of other players when Fusion is installed
-            HideRigsMode.All => UnityEngine.Object.FindObjectsOfType<RigManager>().ToArray(),
-            _ => []
-        };
-
-        foreach (var rigManager in rigManagers)
-        {
-            foreach (var renderer in rigManager.GetComponentsInChildren<Renderer>())
+            foreach (var renderer in RigQuery.GetRenderers(rigManager, includeHeld: false))
             {
                 if (!renderer.enabled)
                     continue;

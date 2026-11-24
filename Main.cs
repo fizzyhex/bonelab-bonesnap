@@ -2,15 +2,16 @@
 using MelonLoader;
 using BoneSnap.Assets;
 using BoneSnap.Capture;
+using BoneSnap.Cloning;
 using BoneSnap.Personalisation;
 using BoneSnap.SDK;
 using BoneSnap.Menu;
+using BoneSnap.Multiplayer;
 
 namespace BoneSnap;
 
 internal partial class Main : MelonMod
 {
-    //private bool _isBindDown = false;
     private static BoneSnapPreferences _boneSnapPreferences;
     private static ReferenceCache _referenceCache = null!;
     private static Screenshotter _screenshotter = null!;
@@ -30,6 +31,7 @@ internal partial class Main : MelonMod
 
         BoneMenu.DrawBoneMenu(_boneSnapPreferences, _screenshotter);
         AssetManager.Initialize();
+        FusionSync.Initialize();
         base.OnInitializeMelon();
         Hooking.OnLevelUnloaded += OnLevelUnloaded;
     }
@@ -60,20 +62,6 @@ internal partial class Main : MelonMod
     private void OnLevelUnloaded()
     {
         _referenceCache.ClearReferences();
+        AvatarClones.Clear();
     }
-        
-    // public override void OnUpdate()
-    // {
-    //     if (Input.GetKey(KeyCode.JoystickButton8) && Input.GetKey(KeyCode.JoystickButton4))
-    //     {
-    //         if (_isBindDown) return;
-    //         _isBindDown = true;
-    //         _screenshotter.PrepareFisheyeCapture(0, _boneSnapPreferences.BindCapturePrefs.CaptureQuality.Value,
-    //             _boneSnapPreferences.OutputPath.Value, _boneSnapPreferences.BindCapturePrefs.ResolutionScale.Value);
-    //     }
-    //     else
-    //     {
-    //         _isBindDown = false;
-    //     }
-    // }
 }

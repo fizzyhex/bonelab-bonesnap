@@ -1,6 +1,7 @@
 using System.Collections;
 using BoneSnap.SDK;
 using MelonLoader;
+using UnityEngine;
 
 namespace BoneSnap.Capture;
 
@@ -32,13 +33,25 @@ internal partial class Screenshotter
         {
             captureHooks.PreCapture(captureParams);
             
-            yield return null; // Wait a frame while hooks apply before copying the texture, otherwise our
-                               // copy may be a frame behind (and show the SnapHUD).
-            
+            // Copy once this frame has rendered with the hooks applied. Copying from Update would read the
+            // previous frame (which shows the SnapHUD).
+            yield return new WaitForEndOfFrame();
+
             ScreenCopy.RequestInto(screenTexture);
 
-            var screenshotTexture = ReadPixels(screenTexture);
-            SnapHUD.GetInstance().FreezePreview(screenTexture);
+            var uprightTexture = RenderTexture.GetTemporary(screenTexture.width, screenTexture.height, 0);
+            Texture2D screenshotTexture;
+
+            try
+            {
+                ScreenCopy.BlitWindowCopy(screenTexture, uprightTexture);
+                screenshotTexture = ReadPixels(uprightTexture);
+                SnapHUD.GetInstance().FreezePreview(uprightTexture);
+            }
+            finally
+            {
+                RenderTexture.ReleaseTemporary(uprightTexture);
+            }
 
             result.Captures = [ReadRawCapture(screenshotTexture, captureParams.Quality)];
             UnityEngine.Object.Destroy(screenshotTexture);
