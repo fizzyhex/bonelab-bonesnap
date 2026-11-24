@@ -16,13 +16,13 @@
 
 Compositing allows you to render out multiple layers, which is perfect for photo editing, mod thumbnails and alike. These support avatar clones, too.
 
-![Compositing Demonstration](./Marketing/compositing.webp")
+![Compositing Demonstration](./Marketing/compositing.webp)
 
 **Transparency**
 
 Use the `Mask` compositing mode to output captures with support for transparent objects:
 
-![Transparency Demonstration](./Marketing/transparent-snap.png")
+![Transparency Demonstration](./Marketing/transparent-snap.png)
 
 <sup>*need to capture an object without your arms? hold it in the air and capture it with the `Hide Rigs` setting!*</sup> 
 
