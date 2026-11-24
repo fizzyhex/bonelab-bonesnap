@@ -169,7 +169,6 @@ internal partial class Screenshotter
     {
         Directory.CreateDirectory(outputPath);
 
-        // Passes share a name so they sort together, e.g. "... 5 Background.png"
         var baseName = NewCaptureName();
         var suffixLayers = captures.Length > 1;
 
@@ -241,7 +240,6 @@ internal partial class Screenshotter
 
                     foreach (var (capture, path) in outputs)
                     {
-                        // TODO: decide what happens when one pass fails
                         var stopwatch = Stopwatch.StartNew();
 
                         byte[] bytes;
