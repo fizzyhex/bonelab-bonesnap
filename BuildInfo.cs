@@ -6,6 +6,6 @@ internal partial class Main
     internal const string Description = "An image capturing tool for BONELAB";
     internal const string Author = "Fizzyhex";
     internal const string Company = "Fizzyhex";
-    internal const string Version = "5.0.0";
+    internal const string Version = "5.0.1";
     internal const string DownloadLink = "https://github.com/Fizzyhex/bonelab-bonesnap";
 }
