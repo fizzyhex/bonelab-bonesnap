@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+﻿using Il2CppSLZ.Marrow.Audio;
+using UnityEngine;
 
 namespace BoneSnap.Assets;
 
@@ -12,6 +13,7 @@ internal static class AudioManager
         var audioSource = _audioGameObject.GetComponent<AudioSource>()
             ? _audioGameObject.GetComponent<AudioSource>()
             : _audioGameObject.AddComponent<AudioSource>();
+        audioSource.outputAudioMixerGroup = Audio3dManager.hardInteraction;
         audioSource.PlayOneShot(clip, 0.7f);
     }
 }
