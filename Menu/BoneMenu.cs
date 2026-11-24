@@ -24,6 +24,7 @@ internal abstract class BoneMenu
     private static Action? _renderPersonalisation;
     private static Page? _personalisationPage;
     private static Action? _renderCloning;
+    private static Page? _manageClonesPage;
     private static Action? _renderSnapCamera;
     private static FunctionElement? _downloadButton;
     private static string? _adjustingBarcode;
@@ -450,6 +451,9 @@ internal abstract class BoneMenu
         void RenderAvatarCloning(Page cloningPage)
         {
             cloningPage.RemoveAll();
+            
+            cloningPage.CreateFunction("Clone Avatar", AccentColor.Current, () =>
+                AvatarClones.CloneLocalAfterDelay(preferences.CloneDelay.Value, preferences.CloneIncludeHeldItems.Value));
 
             var delay = cloningPage.CreateFloat("Clone Delay", Color.white, preferences.CloneDelay.Value, .5f, 0f, 60f, value =>
             {
@@ -472,17 +476,22 @@ internal abstract class BoneMenu
                                       "This needs to be re-enabled each time you launch the game.");
             }
 
-            cloningPage.CreateFunction("Clone Avatar", Color.white, () =>
-                AvatarClones.CloneLocalAfterDelay(preferences.CloneDelay.Value, preferences.CloneIncludeHeldItems.Value));
-
             var clones = AvatarClones.Local;
 
             if (clones.Count == 0)
             {
+                // Return to the parent page if the player deletes the last clone
+                if (_manageClonesPage != null && BoneLib.BoneMenu.Menu.CurrentPage == _manageClonesPage)
+                    BoneLib.BoneMenu.Menu.OpenPage(cloningPage);
+                else
+                    cloningPage.Refresh();
+
                 return;
             }
 
-            var managePage = GetOrCreatePage(cloningPage, "Manage Clones", $"Manage Clones ({clones.Count})");
+            cloningPage.Refresh();
+
+            var managePage = _manageClonesPage = GetOrCreatePage(cloningPage, "Manage Clones", $"Manage Clones ({clones.Count})");
             managePage.RemoveAll();
 
             managePage.CreateConfirmFunction("Delete All", Color.red, AvatarClones.DeleteAll,
@@ -498,6 +507,8 @@ internal abstract class BoneMenu
                     onReset: () => CloneHighlighter.Hide(clone),
                     confirmText: "Delete?");
             }
+
+            managePage.Refresh();
         }
 
         void RenderFieldOfView(Page cameraPage)
