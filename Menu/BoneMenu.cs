@@ -127,6 +127,8 @@ internal abstract class BoneMenu
             RenderCameraPersonalisation(cameraPersonalisationPage);
             WatchPersonalisation(cameraPersonalisationPage, () => RenderCameraPersonalisation(cameraPersonalisationPage));
 
+            RenderSteam(GetOrCreatePage(moreOptions, "Steam"));
+
             moreOptions.CreateBool("Capture Preview", Color.white, preferences.ShowPreview.Value, value =>
             {
                 preferences.ShowPreview.Value = value;
@@ -212,6 +214,31 @@ internal abstract class BoneMenu
 
             _downloadButton = snapCameraPage.CreateFunction(label, AccentColor.Current, SnapCameraContent.Download);
             _downloadButton.SetTooltip("Downloads the Snap Camera from mod.io. You'll need to be authenticated with mod.io through BONELAB for this to work.");
+        }
+
+        void RenderSteam(Page steamPage)
+        {
+            steamPage.RemoveAll();
+
+            var saveToSteam = steamPage.CreateBool("Save to Steam", Color.white, preferences.SaveToSteam.Value, value =>
+            {
+                preferences.SaveToSteam.Value = value;
+                preferences.ManualSave();
+            });
+
+            var steamLayer = steamPage.CreateDisplayEnum("Layer", Color.white, preferences.SteamLayer.Value,
+                [
+                    (SteamLayer.Players, "Players"),
+                    (SteamLayer.Combined, "Combined"),
+                    (SteamLayer.Background, "Background")
+                ],
+                value =>
+                {
+                    preferences.SteamLayer.Value = value;
+                    preferences.ManualSave();
+                });
+
+            steamLayer.SetTooltip("Changes which layer is saved to Steam if you have compositing enabled.");
         }
 
         void RenderCameraPersonalisation(Page personalisationPage)

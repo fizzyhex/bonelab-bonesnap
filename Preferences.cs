@@ -59,6 +59,13 @@ public enum CompositingMode
     CookieCutout
 }
 
+public enum SteamLayer
+{
+    Players,
+    Combined,
+    Background
+}
+
 public readonly record struct PostProcessingEffect(string Key, string DisplayName, string[] VolumeComponents)
 {
     // Effects the spectator camera renders
@@ -132,6 +139,10 @@ public readonly struct BoneSnapPreferences(MelonPreferences_Category category)
     public readonly MelonPreferences_Entry<float> CloneDelay = category.CreateEntry("CloneDelay", 3f);
 
     public readonly MelonPreferences_Entry<bool> CloneIncludeHeldItems = category.CreateEntry("CloneIncludeHeldItems", true);
+
+    public readonly MelonPreferences_Entry<bool> SaveToSteam = category.CreateEntry("SaveToSteam", false);
+
+    public readonly MelonPreferences_Entry<SteamLayer> SteamLayer = category.CreateEntry("SteamLayer", BoneSnap.SteamLayer.Players);
 
     // The spectator camera's field of view in fisheye mode
     public const float DefaultFieldOfView = 78f;

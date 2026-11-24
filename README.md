@@ -42,12 +42,16 @@ Your companion camera. You can take selfies, adjust the zoom, anchor it in the a
 
 <sup>optional 2mb download. get it thru the bonemenu!</sup>
 
-### Optional Fusion Support
+### Fusion Support
 
 The following things are sync across the network for others in the lobby:
 
 - Snap Camera personalisation (colour/trinket)
 - Avatar Clones (only if opted into!)
+
+#### SteamVR Captures
+
+If you have Fusion installed, captures can be saved to your library via Steamworks! Opt-in via `More Options -> Steam`.
 
 ## Privacy Statement
 

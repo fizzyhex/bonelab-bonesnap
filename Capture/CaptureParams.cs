@@ -26,7 +26,9 @@ public readonly record struct CaptureParams(
     HideRigsMode HideRigs = HideRigsMode.None,
     float? FieldOfView = null,
     CompositingMode CompositingMode = CompositingMode.Combined,
-    CompositingLayer CompositingLayer = CompositingLayer.Combined
+    CompositingLayer CompositingLayer = CompositingLayer.Combined,
+    bool SaveToSteam = false,
+    SteamLayer SteamLayer = SteamLayer.Players
     )
 {
     public static CaptureParams FromPreferences(BoneSnapPreferences preferences,
@@ -47,7 +49,9 @@ public readonly record struct CaptureParams(
             HideRigs: preferences.HideRigs.Value,
             FieldOfView: overrides ? preferences.FieldOfView.Value : null,
             CompositingMode: preferences.CompositingMode.Value,
-            CompositingLayer: compositingLayer
+            CompositingLayer: compositingLayer,
+            SaveToSteam: preferences.SaveToSteam.Value,
+            SteamLayer: preferences.SteamLayer.Value
         );
     }
 

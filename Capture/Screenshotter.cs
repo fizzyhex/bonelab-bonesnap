@@ -25,6 +25,9 @@ internal partial class Screenshotter
     private const float Megabyte = 1024f;
 
     private const int SdkCaptureLimit = 5;
+
+    // #252A33 - transparent captures are flattened onto this for Steam
+    private static readonly Color32 SteamBackground = new(37, 42, 51, 255);
     private const float SdkCaptureWindowSeconds = 3;
 
     private readonly ReferenceCache _referenceCache;
@@ -95,7 +98,7 @@ internal partial class Screenshotter
 
         return;
 
-        static void OnCaptureFinished(Task output)
+        static void OnCaptureFinished(Task<bool> output)
         {
             if (output.IsFaulted)
             {
@@ -103,14 +106,18 @@ internal partial class Screenshotter
                 return;
             }
 
-            if (AssetManager.CaptureCompleteAudio != null) AudioManager.Play(AssetManager.CaptureCompleteAudio, 0.35f);
+            // Steam plays its own capture sound :P
+            var savedToSteam = output.IsCompletedSuccessfully && output.Result;
+
+            if (!savedToSteam && AssetManager.CaptureCompleteAudio != null)
+                AudioManager.Play(AssetManager.CaptureCompleteAudio, 0.35f);
         }
     }
 
     /// <summary>
     /// Runs capture, and encodes/writes the result on another thread.
     /// </summary>
-    private IEnumerator RunCapture(CaptureParams captureParams, CaptureStep capture, Action<Task> onFinished)
+    private IEnumerator RunCapture(CaptureParams captureParams, CaptureStep capture, Action<Task<bool>> onFinished)
     {
         var result = new CaptureResult();
 
@@ -127,7 +134,8 @@ internal partial class Screenshotter
 
         // poll the output task from the coroutine to keep the callback on the main
         // thread
-        var output = OutputCaptures(rawCaptures, captureParams.OutputPath);
+        var output = OutputCaptures(rawCaptures, captureParams.OutputPath,
+            captureParams.SaveToSteam ? captureParams.SteamLayer : null);
 
         while (!output.IsCompleted)
             yield return null;
@@ -165,7 +173,9 @@ internal partial class Screenshotter
     /// <summary>
     /// Encodes and writes <paramref name="captures"/> in the background as one batch. Call from the main thread!
     /// </summary>
-    private Task OutputCaptures(RawCapture[] captures, string outputPath)
+    /// <param name="steamLayer">The pass to send to Steam, or null to skip Steam.</param>
+    /// <returns>If Steam is handling the capture.</returns>
+    private Task<bool> OutputCaptures(RawCapture[] captures, string outputPath, SteamLayer? steamLayer)
     {
         Directory.CreateDirectory(outputPath);
 
@@ -177,19 +187,39 @@ internal partial class Screenshotter
             .ToArray();
 
         LastCaptureFileName = Path.GetFileName(outputs[^1].Path);
-        var output = EncodeAndWriteAsync(outputs);
+
+        var steamIndex = steamLayer is { } layer ? SelectSteamOutput(captures, layer) : -1;
+        var output = EncodeAndWriteAsync(outputs, steamIndex, $"{baseName} Steam.jpg");
 
         SnapHUD.GetInstance().SwapState(new EncodingInProgressState());
+        // Completes after the Steam hand-off, which has to happen on the main thread
+        var finished = new TaskCompletionSource<bool>();
         MelonCoroutines.Start(WaitForTaskAndThenRunCallback(output, OnOutputFinished));
 
-        return output;
+        return finished.Task;
 
         void OnOutputFinished(Task task)
         {
+            var savedToSteam = false;
+            var result = task.IsCompletedSuccessfully ? ((Task<EncodeResult>)task).Result : default;
+
+            if (result.SteamPath != null)
+            {
+                var steamCapture = captures[steamIndex];
+                savedToSteam = SteamScreenshotLibrary.Add(Path.GetFullPath(result.SteamPath), steamCapture.Width, steamCapture.Height);
+            }
+
             SnapHUD.GetInstance().SwapState(task.IsCompletedSuccessfully
                 ? new SaveCompleteState(suffixLayers ? $"{baseName} (x{captures.Length})" : LastCaptureFileName,
-                    ((Task<long>)task).Result)
+                    result.EncodeMs)
                 : new IdleState());
+
+            if (task.IsFaulted)
+                finished.SetException(task.Exception!.InnerExceptions);
+            else if (task.IsCanceled)
+                finished.SetCanceled();
+            else
+                finished.SetResult(savedToSteam);
         }
     }
 
@@ -224,9 +254,32 @@ internal partial class Screenshotter
     }
 
     /// <summary>
+    /// Picks a single layer to send to Steam to avoid cluttering the screenshots folder.
+    /// Combined captures only have the one pass, so fall back to it.
+    /// </summary>
+    private static int SelectSteamOutput(RawCapture[] captures, SteamLayer steamLayer)
+    {
+        var index = Array.FindIndex(captures, capture => steamLayer switch
+        {
+            SteamLayer.Players => IsPlayerLayer(capture.Layer),
+            SteamLayer.Background => capture.Layer == Capture.CompositingLayer.Background,
+            _ => capture.Layer == Capture.CompositingLayer.Combined
+        });
+
+        return index != -1 ? index : Array.FindIndex(captures, capture => capture.Layer == Capture.CompositingLayer.Combined);
+    }
+
+    /// <param name="EncodeMs">Total time spent encoding.</param>
+    /// <param name="SteamPath">File to hand to Steam, if a capture was picked for it.</param>
+    private readonly record struct EncodeResult(long EncodeMs, string? SteamPath);
+
+    /// <summary>
     /// Encodes and writes each capture in turn off the main thread.
     /// </summary>
-    private static Task<long> EncodeAndWriteAsync((RawCapture Capture, string Path)[] outputs)
+    /// <param name="steamIndex">Index of the capture going to Steam, or -1.</param>
+    /// <param name="steamFileName">Name for the flattened copy of a transparent Steam capture.</param>
+    private static Task<EncodeResult> EncodeAndWriteAsync((RawCapture Capture, string Path)[] outputs,
+        int steamIndex, string steamFileName)
     {
         return Task.Factory.StartNew(() =>
         {
@@ -237,27 +290,22 @@ internal partial class Screenshotter
                 try
                 {
                     long totalEncodeMs = 0;
+                    string? steamPath = null;
 
-                    foreach (var (capture, path) in outputs)
+                    for (var i = 0; i < outputs.Length; i++)
                     {
+                        var (capture, path) = outputs[i];
                         var stopwatch = Stopwatch.StartNew();
-
-                        byte[] bytes;
 
                         var colorPixels = capture.Layer == Capture.CompositingLayer.PlayerCutout
                             ? outputs.First(x => x.Capture.Layer == Capture.CompositingLayer.Combined).Capture.Pixels
                             : capture.ColorPixels;
 
-                        if (colorPixels != null)
-                        {
-                            bytes = Encode(capture,
-                                ApplyAlphaMask(colorPixels, capture.Pixels, capture.Width, capture.Height));
-                        }
-                        else
-                        {
-                            bytes = Encode(capture, capture.Pixels);
-                        }
+                        var pixels = colorPixels != null
+                            ? ApplyAlphaMask(colorPixels, capture.Pixels, capture.Width, capture.Height)
+                            : capture.Pixels;
 
+                        var bytes = Encode(capture, pixels);
                         var encodeMs = stopwatch.ElapsedMilliseconds;
 
                         LogFileSize(bytes, path);
@@ -265,9 +313,12 @@ internal partial class Screenshotter
                         LogOutputCompletion(encodeMs, stopwatch.ElapsedMilliseconds - encodeMs);
 
                         totalEncodeMs += encodeMs;
+
+                        if (i == steamIndex)
+                            steamPath = WriteSteamCopy(capture, pixels, path, steamFileName);
                     }
 
-                    return totalEncodeMs;
+                    return new EncodeResult(totalEncodeMs, steamPath);
                 }
                 finally
                 {
@@ -275,6 +326,62 @@ internal partial class Screenshotter
                 }
             }
         }, TaskCreationOptions.LongRunning);
+    }
+
+    /// <summary>
+    /// Steam saves screenshots as .jpg and fills transparency with white, so transparent captures get an
+    /// opaque copy over <see cref="SteamBackground"/> for Steam to import instead.
+    /// </summary>
+    /// <returns>The path to hand to Steam.</returns>
+    private static string WriteSteamCopy(RawCapture capture, Il2CppStructArray<byte> pixels, string path, string fileName)
+    {
+        // RGBA32 - see ApplyAlphaMask
+        if (pixels.Length != capture.Width * capture.Height * 4)
+            return path;
+
+        var directory = Path.Combine(Path.GetTempPath(), "BoneSnap", "Steam");
+        Directory.CreateDirectory(directory);
+        DeleteStaleSteamCopies(directory);
+
+        var flattened = new Il2CppStructArray<byte>(pixels.Length);
+        var src = pixels.AsSpan();
+        var dst = flattened.AsSpan();
+
+        for (var i = 0; i < src.Length; i += 4)
+        {
+            var alpha = src[i + 3];
+            dst[i] = Blend(src[i], SteamBackground.r, alpha);
+            dst[i + 1] = Blend(src[i + 1], SteamBackground.g, alpha);
+            dst[i + 2] = Blend(src[i + 2], SteamBackground.b, alpha);
+            dst[i + 3] = 255;
+        }
+
+        // Steam stores .jpg files as-is, so this is the quality that ends up in the library
+        var steamPath = Path.Combine(directory, fileName);
+        File.WriteAllBytes(steamPath, Encode(capture with { Quality = 95 }, flattened));
+        return steamPath;
+
+        static byte Blend(byte color, byte background, byte alpha)
+            => (byte)((color * alpha + background * (255 - alpha) + 127) / 255);
+    }
+
+    /// <summary>
+    /// Steam copies screenshots in on its own time, so copies are cleared out on a later capture.
+    /// </summary>
+    private static void DeleteStaleSteamCopies(string directory)
+    {
+        foreach (var file in Directory.EnumerateFiles(directory))
+        {
+            try
+            {
+                if (DateTime.Now - File.GetLastWriteTime(file) > TimeSpan.FromMinutes(1))
+                    File.Delete(file);
+            }
+            catch (IOException)
+            {
+                // Steam may still be reading it
+            }
+        }
     }
 
     private static byte[] Encode(RawCapture capture, Il2CppStructArray<byte> bytes)
