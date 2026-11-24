@@ -40,7 +40,7 @@ Your companion camera. You can take selfies, adjust the zoom, anchor it in the a
 
 ![A shot of the Snap Camera spinning, showcasing different trinkets attached via the keychain.](./Marketing/snap-camera-spin.webp)
 
-<sup>it's not bundled with the dll btw. go get it on mod.io!</sup>
+<sup>optional 2mb download. get it thru the bonemenu!</sup>
 
 ### Optional Fusion Support
 
@@ -55,5 +55,6 @@ Your data is processed. Its sold. WE USE IT. We train on it. We use it to train 
 
 ## ♥ Thanks
 
-- @TrevTV & @yellowyears - Debugging with initial release
-- @Checkerb0ard & FragileDeviations - Fixing for patches (am lazy)
+- @TrevTV & @yellowyears – Debugging with initial release
+- @Checkerb0ard & FragileDeviations – Fixing for patches (am lazy)
+- [Fusion](https://github.com/Lakatrazz/BONELAB-Fusion) – Mod.io Downloader Code

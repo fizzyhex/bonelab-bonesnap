@@ -3,6 +3,7 @@ using BoneLib;
 using BoneLib.BoneMenu;
 using BoneSnap.Capture;
 using BoneSnap.Cloning;
+using BoneSnap.Downloading;
 using BoneSnap.Extensions;
 using BoneSnap.Multiplayer;
 using BoneSnap.Personalisation;
@@ -23,6 +24,8 @@ internal abstract class BoneMenu
     private static Action? _renderPersonalisation;
     private static Page? _personalisationPage;
     private static Action? _renderCloning;
+    private static Action? _renderSnapCamera;
+    private static FunctionElement? _downloadButton;
     private static string? _adjustingBarcode;
     private static readonly Dictionary<(Page Parent, string Name), Page> ChildPages = new();
     private static readonly Dictionary<Page, FunctionElement> PreviewButtons = new();
@@ -113,9 +116,15 @@ internal abstract class BoneMenu
             RenderAvatarCloning(cloningPage);
             WatchClones(() => RenderAvatarCloning(cloningPage));
     
-            var personalisationPage = GetOrCreatePage(moreOptions, "Personalisation");
-            RenderPersonalisation(personalisationPage);
-            WatchPersonalisation(personalisationPage, () => RenderPersonalisation(personalisationPage));
+            RenderPersonalisation(GetOrCreatePage(moreOptions, "Personalisation"));
+
+            var snapCameraPage = GetOrCreatePage(moreOptions, "Snap Camera");
+            RenderSnapCamera(snapCameraPage);
+            WatchSnapCamera(() => RenderSnapCamera(snapCameraPage));
+
+            var cameraPersonalisationPage = GetOrCreatePage(snapCameraPage, "Personalisation");
+            RenderCameraPersonalisation(cameraPersonalisationPage);
+            WatchPersonalisation(cameraPersonalisationPage, () => RenderCameraPersonalisation(cameraPersonalisationPage));
 
             moreOptions.CreateBool("Capture Preview", Color.white, preferences.ShowPreview.Value, value =>
             {
@@ -178,12 +187,37 @@ internal abstract class BoneMenu
                     OnAccentChanged();
                 });
             }
-
-            RenderKeychainPrefs(personalisationPage, accent);
         }
 
-        void RenderKeychainPrefs(Page personalisationPage, Color accent)
+        void RenderSnapCamera(Page snapCameraPage)
         {
+            string label;
+
+            if (SnapCameraContent.IsDownloading)
+                label = $"Downloading... ({SnapCameraContent.Progress * 100f:0}%)";
+            else
+                label = SnapCameraContent.IsInstalled ? "Redownload" : "Download";
+
+            // Update the button in place to preserve the separately rendered
+            // Personalisation link
+            if (_downloadButton != null)
+            {
+                // Progress reports every frame
+                if (_downloadButton.ElementName != label)
+                    _downloadButton.ElementName = label;
+
+                return;
+            }
+
+            _downloadButton = snapCameraPage.CreateFunction(label, AccentColor.Current, SnapCameraContent.Download);
+            _downloadButton.SetTooltip("Downloads the Snap Camera from mod.io. You'll need to be authenticated with mod.io through BONELAB for this to work.");
+        }
+
+        void RenderCameraPersonalisation(Page personalisationPage)
+        {
+            personalisationPage.RemoveAll();
+
+            var accent = AccentColor.Current;
             var canChange = false;
             var hands = Player.HandsExist ? new[] { Player.LeftHand, Player.RightHand } : [];
             var spawnGunBarcodes = new List<string>();
@@ -675,5 +709,22 @@ internal abstract class BoneMenu
 
         if (subscribe)
             AvatarClones.Changed += () => _renderCloning?.Invoke();
+    }
+
+    /// <summary>
+    /// Refreshes the Snap Camera download button when download state changes and
+    /// when a level loads.
+    /// </summary>
+    private static void WatchSnapCamera(Action render)
+    {
+        var subscribe = _renderSnapCamera == null;
+        _renderSnapCamera = render;
+
+        if (!subscribe)
+            return;
+
+        SnapCameraContent.Changed += () => _renderSnapCamera?.Invoke();
+        // The warehouse may not have loaded when the menu was first drawn
+        Hooking.OnLevelLoaded += _ => _renderSnapCamera?.Invoke();
     }
 }
