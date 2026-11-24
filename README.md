@@ -1,18 +1,49 @@
-![BoneSnap Banner](https://github.com/Fizzyhex/bonelab-bonesnap/blob/main/media/banner.png "BoneMenu -> BoneSnap")
+![BoneSnap Banner](./Marketing/hero.png "BoneMenu -> BoneSnap")
 
+# `📷 bonesnap`
 
-# 📷 BoneSnap - A BONELAB Screenshotting Tool
-[Thunderstore](https://bonelab.thunderstore.io/package/Fizzyhex/BoneSnap) | [GitHub](https://github.com/Fizzyhex/bonelab-bonesnap)
+[Thunderstore](https://bonelab.thunderstore.io/package/Fizzyhex/BoneSnap) ↔ [GitHub](https://github.com/Fizzyhex/bonelab-bonesnap)
 
-Take full-resolution screenshots of your game window! Captures save to your clipboard and underneath the `UserData\Screenshots` folder (this is configurable!).
+- accurate high-res captures and screenshots
+- compositing
+- compatibility with the SNAP CAMERA spawnable - a handheld camera.
+- personalisation
+- avatar cloning for scene makers
 
-## Compatibility
+## Features
 
-BoneSnap simply just takes a snapshot of your game window. In other words, it'll work with your favourite camera mods.
+### Compositing
 
-## Quality Control
+Compositing allows you to render out multiple layers, which is perfect for photo editing, mod thumbnails and alike. These support avatar clones, too.
+
+![Compositing Demonstration](./Marketing/compositing.webp")
+
+**Transparency**
+
+Use the `Mask` compositing mode to output captures with support for transparent objects:
+
+![Transparency Demonstration](./Marketing/transparent-snap.png")
+
+<sup>*need to capture an object without your arms? hold it in the air and capture it with the `Hide Rigs` setting!*</sup> 
+
+### Compatibility
+
+You can use the SNAP CAMERA, or don't! `Screen` mode works with anything that appears on your monitor, and you can disable BoneSnap's post processing to use it with mods like WideEye.
+
+### Quality Control
 
 BoneSnap will output as a lossless image (PNG) by default, you can optionally reduce the quality to output as a JPG and save on file storage.
+
+### Optional Fusion Support
+
+The following things are sync across the network for others in the lobby:
+
+- Snap Camera personalisation (colour/trinket)
+- Avatar Clones (only if opted into!)
+
+## Privacy Statement
+
+Your data is processed. Its sold. WE USE IT. We train on it. We use it to train our models. Our models will be you. They will be us. Every photo isn't just sent—It's a data point. On You. — On us.———On YOU.
 
 ## ♥ Thanks
 
