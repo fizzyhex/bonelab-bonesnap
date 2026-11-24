@@ -172,6 +172,23 @@ internal static class AvatarClones
             Delete(clone);
     }
 
+    public static void DeleteAll()
+    {
+        if (Clones.Count == 0)
+            return;
+
+        foreach (var clone in Clones)
+        {
+            Destroy(clone);
+
+            if (clone.IsLocal && FusionSyncEnabled)
+                FusionSync.SendCloneDeleted(clone.Id);
+        }
+
+        Clones.Clear();
+        Changed?.Invoke();
+    }
+
     /// <summary>
     /// Destroys all clones.
     /// </summary>

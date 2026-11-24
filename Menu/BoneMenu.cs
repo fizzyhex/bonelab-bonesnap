@@ -451,6 +451,9 @@ internal abstract class BoneMenu
             var managePage = GetOrCreatePage(cloningPage, "Manage Clones", $"Manage Clones ({clones.Count})");
             managePage.RemoveAll();
 
+            managePage.CreateConfirmFunction("Delete All", Color.red, AvatarClones.DeleteAll,
+                confirmText: "Confirm?");
+
             for (var i = 0; i < clones.Count; i++)
             {
                 var clone = clones[i];
