@@ -359,3 +359,8 @@ References/
 
 # Showcase footage scripts
 Cinematic/
+
+# Thunderstore build outputs (Staging is built by Release)
+Staging/Mods/
+Staging/*.zip
+Staging/README.md

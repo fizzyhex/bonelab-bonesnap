@@ -150,4 +150,26 @@
       <Message Importance="high" Text="$(TargetName) -&gt; $(BonelabModsDir)" Condition="'@(_DeployedFiles)' != ''" />
     </Target>
 
+    <!-- release builds copy the dll into Staging\Mods and zip Staging up for thunderstore -->
+    <Target Name="PackageThunderstore" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+      <PropertyGroup>
+        <_StagingDir>$(MSBuildProjectDirectory)\Staging</_StagingDir>
+        <_PackageDir>$(IntermediateOutputPath)thunderstore</_PackageDir>
+        <!-- point image links at github -->
+        <_ReadmeAssetUrl>https://raw.githubusercontent.com/Fizzyhex/bonelab-bonesnap/main/Marketing/</_ReadmeAssetUrl>
+        <_ReadmeText>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\README.md').Replace('](./Marketing/', ']($(_ReadmeAssetUrl)'))</_ReadmeText>
+      </PropertyGroup>
+      <ItemGroup>
+        <_StagingFiles Include="$(_StagingDir)\manifest.json;$(_StagingDir)\README.md;$(_StagingDir)\LICENSE.md;$(_StagingDir)\icon.png" />
+      </ItemGroup>
+      <!-- escaped so semicolons in the readme don't get split into separate lines -->
+      <WriteLinesToFile File="$(_StagingDir)\README.md" Lines="$([MSBuild]::Escape($(_ReadmeText)))" Overwrite="true" WriteOnlyWhenDifferent="true" />
+      <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(_StagingDir)\Mods" />
+      <RemoveDir Directories="$(_PackageDir)" />
+      <Copy SourceFiles="@(_StagingFiles)" DestinationFolder="$(_PackageDir)" />
+      <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(_PackageDir)\Mods" />
+      <ZipDirectory SourceDirectory="$(_PackageDir)" DestinationFile="$(_StagingDir)\$(TargetName).zip" Overwrite="true" />
+      <Message Importance="high" Text="$(TargetName) -&gt; $(_StagingDir)\$(TargetName).zip" />
+    </Target>
+
 </Project>
