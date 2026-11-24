@@ -63,8 +63,6 @@ internal static class Components
         var armedVersion = 0;
 
         FunctionElement? element = null;
-        var element1 = element;
-        
         element = page.CreateFunction(name, color, () =>
         {
             if (armed)
@@ -76,8 +74,8 @@ internal static class Components
 
             armed = true;
             var version = ++armedVersion;
-            element1!.ElementName = confirmText;
-            element1.ElementColor = AccentColor.Current;
+            element!.ElementName = confirmText;
+            element.ElementColor = AccentColor.Current;
             onArmed?.Invoke();
 
             MelonCoroutines.Start(DisarmAfter(version));

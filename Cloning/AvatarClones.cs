@@ -206,6 +206,7 @@ internal static class AvatarClones
         var copy = new GameObject(source.name) { layer = source.gameObject.layer };
         copy.transform.SetParent(parent, false);
         copy.transform.SetPositionAndRotation(sourceTransform.position, sourceTransform.rotation);
+        copy.transform.localScale = sourceTransform.lossyScale;
 
         var skinned = source.TryCast<SkinnedMeshRenderer>();
 
@@ -214,10 +215,6 @@ internal static class AvatarClones
             mesh = new Mesh { name = $"{source.name} (Baked)" };
             skinned.BakeMesh(mesh, true);
             ownedMeshes.Add(mesh);
-        }
-        else
-        {
-            copy.transform.localScale = sourceTransform.lossyScale;
         }
 
         copy.AddComponent<MeshFilter>().sharedMesh = mesh;
