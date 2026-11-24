@@ -1,4 +1,4 @@
-![BoneSnap Banner](./Marketing/hero.png "BoneMenu -> BoneSnap")
+![BoneSnap Banner](./Marketing/hero-compressed.webp "BoneMenu -> BoneSnap")
 
 # `📷 bonesnap`
 
@@ -33,6 +33,14 @@ You can use the SNAP CAMERA, or don't! `Screen` mode works with anything that ap
 ### Quality Control
 
 BoneSnap will output as a lossless image (PNG) by default, you can optionally reduce the quality to output as a JPG and save on file storage.
+
+### Snap Camera
+
+Your companion camera. You can take selfies, adjust the zoom, anchor it in the air, and more. It's a lot more fun than using the BoneMenu sometimes :) 
+
+![A shot of the Snap Camera spinning, showcasing different trinkets attached via the keychain.](./Marketing/snap-camera-spin.webp)
+
+<sup>it's not bundled with the dll btw. go get it on mod.io!</sup>
 
 ### Optional Fusion Support
 
