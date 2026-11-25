@@ -6,6 +6,7 @@ using BoneSnap.Cloning;
 using BoneSnap.Personalisation;
 using BoneSnap.SDK;
 using BoneSnap.Menu;
+using BoneSnap.Menu.Pages;
 using BoneSnap.Multiplayer;
 
 namespace BoneSnap;
@@ -42,14 +43,14 @@ internal partial class Main : MelonMod
         {
             AccentColor.Invalidate();
             SnapPersonalisation.RefreshLocalStyles();
-            BoneMenu.RefreshPersonalisation();
+            CameraPersonalisationPage.Refresh();
         }
 
         void OnKeychainChanged()
         {
             Trinkets.Invalidate();
             SnapPersonalisation.RefreshLocalStyles();
-            BoneMenu.RefreshPersonalisation();
+            CameraPersonalisationPage.Refresh();
         }
 
         prefs.AccentPalette.OnEntryValueChanged.Subscribe((_, _) => OnAccentChanged());
