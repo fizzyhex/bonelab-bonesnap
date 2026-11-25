@@ -12,7 +12,7 @@ using Object = UnityEngine.Object;
 namespace BoneSnap.Cloning;
 
 /// <summary>
-/// Responsible for creating a static, render-only copies of avatars (and optionally held items)
+/// Responsible for producing mesh bakes of cloned avatars (and optionally held items)
 /// </summary>
 internal sealed record AvatarClone(int Id, byte? Owner, GameObject Root, List<Renderer> Renderers, List<Mesh> OwnedMeshes)
 {
@@ -59,10 +59,7 @@ internal static class AvatarClones
 
     public static IEnumerable<Renderer> GetRenderers()
         => Clones.SelectMany(clone => clone.Renderers).Where(renderer => renderer != null);
-
-    /// <summary>
-    /// Clones the local player's avatar after <paramref name="delay"/> seconds.
-    /// </summary>
+    
     public static void CloneLocalAfterDelay(float delay, bool includeHeld)
     {
         if (AssetManager.CaptureTimerAudio != null)
@@ -109,8 +106,9 @@ internal static class AvatarClones
         var sources = RendererCopy.GetVisibleMeshes(avatar.gameObject);
 
         var forced = new HashSet<IntPtr>();
-        AddForced(avatar.headMeshes);
-        AddForced(avatar.hairMeshes);
+        
+        AddForced(avatar.headMeshes, checkEnabled: false); // BL disables head mesh renderers already
+        AddForced(avatar.hairMeshes, checkEnabled: true);
 
         if (includeHeld)
         {
@@ -136,14 +134,20 @@ internal static class AvatarClones
         Changed?.Invoke();
         return clone;
 
-        void AddForced(IEnumerable<SkinnedMeshRenderer>? meshes)
+        void AddForced(IEnumerable<SkinnedMeshRenderer>? meshes, bool checkEnabled)
         {
             if (meshes == null)
                 return;
 
             foreach (var mesh in meshes)
             {
-                if (mesh == null || mesh.sharedMesh == null || !forced.Add(mesh.Pointer))
+                if (mesh == null || mesh.sharedMesh == null || !mesh.gameObject.activeInHierarchy)
+                    continue;
+
+                if (checkEnabled && !mesh.enabled)
+                    continue;
+
+                if (!forced.Add(mesh.Pointer))
                     continue;
 
                 sources.Add((mesh, mesh.sharedMesh));
@@ -216,18 +220,27 @@ internal static class AvatarClones
     private static Renderer CopyRenderer(Renderer source, Mesh mesh, Transform parent, bool forceVisible,
         List<Mesh> ownedMeshes)
     {
-        var sourceTransform = source.transform;
+        var skinned = source.TryCast<SkinnedMeshRenderer>();
+        
+        // cloth bakes have transforms relativet o the root instead of the renderer,
+        // because sure i guess
+        var cloth = skinned != null ? skinned.GetComponent<Cloth>() : null;
+        var simulated = cloth != null && cloth.enabled && skinned!.rootBone != null;
+        var sourceTransform = simulated ? skinned!.rootBone! : source.transform;
+
         var copy = new GameObject(source.name) { layer = source.gameObject.layer };
         copy.transform.SetParent(parent, false);
         copy.transform.SetPositionAndRotation(sourceTransform.position, sourceTransform.rotation);
         copy.transform.localScale = sourceTransform.lossyScale;
 
-        var skinned = source.TryCast<SkinnedMeshRenderer>();
-
         if (skinned != null)
         {
             mesh = new Mesh { name = $"{source.name} (Baked)" };
             skinned.BakeMesh(mesh, true);
+
+            if (simulated)
+                mesh.RecalculateBounds();
+
             ownedMeshes.Add(mesh);
         }
 

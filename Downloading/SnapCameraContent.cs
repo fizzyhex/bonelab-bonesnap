@@ -29,10 +29,7 @@ internal static class SnapCameraContent
     public static bool IsDownloading { get; private set; }
 
     public static float Progress { get; private set; }
-
-    /// <summary>
-    /// Fired when a download starts, progresses, or ends.
-    /// </summary>
+    
     public static event Action? Changed;
 
     public static bool IsInstalled
@@ -157,12 +154,7 @@ internal static class SnapCameraContent
 
         Notify("Snap Camera Installed", "Find it in your Spawn Gun!", NotificationType.Success);
     }
-
-    /// <summary>
-    /// Extracts the ZIP, moves the pallet into Mods, and passes
-    /// the installed pallet.json path to the callback, or null if
-    /// extraction fails or the pallet cannot be found.
-    /// </summary>
+    
     private static IEnumerator CoInstall(string zipPath, Action<string?> callback)
     {
         var extracted = $"{StagingPath}/{Path.GetFileNameWithoutExtension(zipPath)}";
