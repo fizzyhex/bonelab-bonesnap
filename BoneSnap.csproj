@@ -5,8 +5,9 @@
         <LangVersion>preview</LangVersion>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
-        <!-- Shared SDK scripts (see SDK/) use this to tell the mod build apart from the Unity SDK -->
         <DefineConstants>$(DefineConstants);MELONLOADER</DefineConstants>
+        <!-- Stop local builds from compiling against the stubs instead of the game install -->
+        <DefaultItemExcludes>$(DefaultItemExcludes);ReferenceStubs/**</DefaultItemExcludes>
     </PropertyGroup>
 
     <ItemGroup>
@@ -16,11 +17,11 @@
       <Reference Include="Assembly-CSharp">
         <HintPath>$(BONELAB_DIR)\MelonLoader\Il2CppAssemblies\Assembly-CSharp.dll</HintPath>
       </Reference>
-      <Reference Include="AudioImportLib">
-        <HintPath>$(BONELAB_DIR)\Mods\AudioImportLib.dll</HintPath>
-      </Reference>
       <Reference Include="BoneLib">
         <HintPath>$(BONELAB_DIR)\Mods\BoneLib.dll</HintPath>
+      </Reference>
+      <Reference Include="LabFusion">
+        <HintPath>$(BONELAB_DIR)\Mods\LabFusion.dll</HintPath>
       </Reference>
       <Reference Include="Il2CppInterop.Common">
         <HintPath>$(BONELAB_DIR)\MelonLoader\net6\Il2CppInterop.Common.dll</HintPath>
@@ -58,6 +59,9 @@
       <Reference Include="Il2CppSLZ.Serialize">
         <HintPath>$(BONELAB_DIR)\MelonLoader\Il2CppAssemblies\Il2CppSLZ.Serialize.dll</HintPath>
       </Reference>
+      <Reference Include="Il2CppUniTask">
+        <HintPath>$(BONELAB_DIR)\MelonLoader\Il2CppAssemblies\Il2CppUniTask.dll</HintPath>
+      </Reference>
       <Reference Include="MelonLoader">
         <HintPath>$(BONELAB_DIR)\MelonLoader\net6\MelonLoader.dll</HintPath>
       </Reference>
@@ -69,6 +73,9 @@
       </Reference>
       <Reference Include="Unity.RenderPipelines.Core.Runtime">
         <HintPath>$(BONELAB_DIR)\MelonLoader\Il2CppAssemblies\Unity.RenderPipelines.Core.Runtime.dll</HintPath>
+      </Reference>
+      <Reference Include="Unity.RenderPipelines.Universal.Runtime">
+        <HintPath>$(BONELAB_DIR)\MelonLoader\Il2CppAssemblies\Unity.RenderPipelines.Universal.Runtime.dll</HintPath>
       </Reference>
       <Reference Include="UnityEngine">
         <HintPath>$(BONELAB_DIR)\MelonLoader\Il2CppAssemblies\UnityEngine.dll</HintPath>
@@ -88,8 +95,20 @@
       <Reference Include="UnityEngine.InputLegacyModule">
         <HintPath>$(BONELAB_DIR)\MelonLoader\Il2CppAssemblies\UnityEngine.InputLegacyModule.dll</HintPath>
       </Reference>
+      <Reference Include="UnityEngine.PhysicsModule">
+        <HintPath>$(BONELAB_DIR)\MelonLoader\Il2CppAssemblies\UnityEngine.PhysicsModule.dll</HintPath>
+      </Reference>
+      <Reference Include="UnityEngine.ScreenCaptureModule">
+        <HintPath>$(BONELAB_DIR)\MelonLoader\Il2CppAssemblies\UnityEngine.ScreenCaptureModule.dll</HintPath>
+      </Reference>
       <Reference Include="UnityEngine.TLSModule">
         <HintPath>$(BONELAB_DIR)\MelonLoader\Il2CppAssemblies\UnityEngine.TLSModule.dll</HintPath>
+      </Reference>
+      <Reference Include="Unity.TextMeshPro">
+        <HintPath>$(BONELAB_DIR)\MelonLoader\Il2CppAssemblies\Unity.TextMeshPro.dll</HintPath>
+      </Reference>
+      <Reference Include="UnityEngine.UI">
+        <HintPath>$(BONELAB_DIR)\MelonLoader\Il2CppAssemblies\UnityEngine.UI.dll</HintPath>
       </Reference>
     </ItemGroup>
 
@@ -97,6 +116,10 @@
       <None Remove="README.md" />
       <None Remove="LICENSE" />
       <None Remove=".gitignore" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <EmbeddedResource Include="Resources\Audio\*.wav" LogicalName="BoneSnap.Audio.%(Filename)%(Extension)" />
     </ItemGroup>
 
     <PropertyGroup>
@@ -127,6 +150,28 @@
         <Output TaskParameter="CopiedFiles" ItemName="_DeployedFiles" />
       </Copy>
       <Message Importance="high" Text="$(TargetName) -&gt; $(BonelabModsDir)" Condition="'@(_DeployedFiles)' != ''" />
+    </Target>
+
+    <!-- release builds copy the dll into Staging\Mods and zip Staging up for thunderstore -->
+    <Target Name="PackageThunderstore" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+      <PropertyGroup>
+        <_StagingDir>$(MSBuildProjectDirectory)\Staging</_StagingDir>
+        <_PackageDir>$(IntermediateOutputPath)thunderstore</_PackageDir>
+        <!-- point image links at github -->
+        <_ReadmeAssetUrl>https://raw.githubusercontent.com/Fizzyhex/bonelab-bonesnap/main/Marketing/</_ReadmeAssetUrl>
+        <_ReadmeText>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\README.md').Replace('](./Marketing/', ']($(_ReadmeAssetUrl)'))</_ReadmeText>
+      </PropertyGroup>
+      <ItemGroup>
+        <_StagingFiles Include="$(_StagingDir)\manifest.json;$(_StagingDir)\README.md;$(_StagingDir)\LICENSE.md;$(_StagingDir)\icon.png" />
+      </ItemGroup>
+      <!-- escaped so semicolons in the readme don't get split into separate lines -->
+      <WriteLinesToFile File="$(_StagingDir)\README.md" Lines="$([MSBuild]::Escape($(_ReadmeText)))" Overwrite="true" WriteOnlyWhenDifferent="true" />
+      <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(_StagingDir)\Mods" />
+      <RemoveDir Directories="$(_PackageDir)" />
+      <Copy SourceFiles="@(_StagingFiles)" DestinationFolder="$(_PackageDir)" />
+      <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(_PackageDir)\Mods" />
+      <ZipDirectory SourceDirectory="$(_PackageDir)" DestinationFile="$(_StagingDir)\$(TargetName).zip" Overwrite="true" />
+      <Message Importance="high" Text="$(TargetName) -&gt; $(_StagingDir)\$(TargetName).zip" />
     </Target>
 
 </Project>

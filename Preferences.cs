@@ -1,4 +1,5 @@
-﻿using MelonLoader;
+﻿using BoneSnap.Capture;
+using MelonLoader;
 using MelonLoader.Utils;
 
 namespace BoneSnap;
@@ -17,6 +18,84 @@ public enum CaptureMode
     Fisheye
 }
     
+public enum HideRigsMode
+{
+    None,
+    Local,
+    All
+}
+
+[Flags]
+public enum RevealMeshesMode
+{
+    None = 0,
+    Head = 1,
+    Hair = 2,
+    HeadAndHair = Head | Hair
+}
+
+public enum PostProcessingPreset
+{
+    Fisheye,
+    Minimal,
+    MatchHeadset,
+    Custom
+}
+
+public enum AccentPalette
+{
+    CatppuccinFrappe,
+    CatppuccinLatte,
+    Hex
+}
+
+public enum CompositingMode
+{
+    /// Default - keeps the camera's current layer mask.
+    Combined,
+    /// Produces separate snaps for the players and the background.
+    Multiple,
+    /// Cuts the player out from the combined pass to retain scene lighting.
+    CookieCutout
+}
+
+public enum SteamLayer
+{
+    Players,
+    Combined,
+    Background
+}
+
+public readonly record struct PostProcessingEffect(string Key, string DisplayName, string[] VolumeComponents)
+{
+    // Effects the spectator camera renders
+    public static readonly PostProcessingEffect[] All =
+    [
+        new("Bloom", "Bloom", ["Bloom", "MKGlow"]),
+        new("Tonemapping", "Tonemapping", ["Tonemapping"]),
+        new("ColorGrading",
+            "Color Grading",
+            [
+                "ColorAdjustments",
+                "ColorCurves",
+                "ColorLookup",
+                "ChannelMixer",
+                "LiftGammaGain",
+                "ShadowsMidtonesHighlights",
+                "SplitToning",
+                "WhiteBalance"
+            ]),
+        new("ChromaticAberration", "Chromatic Aberration", ["ChromaticAberration"]),
+        new("Volumetrics", "Volumetrics", ["Volumetrics"]),
+        new("AutoExposure", "Auto Exposure", ["AutoExposure"]),
+        new("LensDistortion", "Lens Distortion", ["LensDistortion"]),
+        new("AmbientOcclusion", "Ambient Occlusion", ["HBAO"])
+    ];
+
+    public static readonly IReadOnlySet<string> AllVolumeComponents =
+        All.SelectMany(effect => effect.VolumeComponents).ToHashSet();
+}
+
 public readonly struct BoneSnapPreferences(MelonPreferences_Category category)
 {
     public readonly CapturePrefs MainCapturePrefs = new(category, "Main");
@@ -25,7 +104,75 @@ public readonly struct BoneSnapPreferences(MelonPreferences_Category category)
 
     public readonly MelonPreferences_Entry<CaptureMode> CaptureMode =
         category.CreateEntry("CaptureMode", BoneSnap.CaptureMode.Screen);
-        
+
+    public readonly MelonPreferences_Entry<PostProcessingPreset> PostProcessingPreset =
+        category.CreateEntry("PostProcessingPreset", BoneSnap.PostProcessingPreset.Minimal);
+
+    public readonly MelonPreferences_Entry<bool> ShiftHeadOffset = category.CreateEntry("ShiftHeadOffset", true);
+
+    public readonly MelonPreferences_Entry<RevealMeshesMode> RevealMeshes =
+        category.CreateEntry("RevealMeshes", RevealMeshesMode.HeadAndHair);
+
+    public readonly MelonPreferences_Entry<HideRigsMode> HideRigs =
+        category.CreateEntry("HideRigs", HideRigsMode.None);
+
+    public readonly MelonPreferences_Entry<bool> ShowPreview = category.CreateEntry("ShowPreview", true);
+
+    public readonly MelonPreferences_Entry<float> FieldOfView = category.CreateEntry("FieldOfView", DefaultFieldOfView);
+
+    public readonly MelonPreferences_Entry<AccentPalette> AccentPalette =
+        category.CreateEntry("AccentPalette", BoneSnap.AccentPalette.CatppuccinFrappe);
+
+    public readonly MelonPreferences_Entry<string> AccentSwatch = category.CreateEntry("AccentSwatch", Personalisation.AccentColor.DefaultSwatch);
+
+    public readonly MelonPreferences_Entry<string> AccentHex = category.CreateEntry("AccentHex", "#81C8BE");
+
+    public readonly MelonPreferences_Entry<string> KeychainBarcode = category.CreateEntry("KeychainBarcode", string.Empty);
+
+    public readonly MelonPreferences_Entry<string> KeychainAdjustments = category.CreateEntry("KeychainAdjustments", "{}");
+    
+    public readonly MelonPreferences_Entry<CompositingMode> CompositingMode = category.CreateEntry("CompositingMode", BoneSnap.CompositingMode.Combined);
+
+    // Master switch for the field of view and post-processing overrides
+    public readonly MelonPreferences_Entry<bool> CameraOverrides = category.CreateEntry("CameraOverrides", true);
+
+    public readonly MelonPreferences_Entry<float> CloneDelay = category.CreateEntry("CloneDelay", 3f);
+
+    public readonly MelonPreferences_Entry<bool> CloneIncludeHeldItems = category.CreateEntry("CloneIncludeHeldItems", true);
+
+    public readonly MelonPreferences_Entry<bool> SaveToSteam = category.CreateEntry("SaveToSteam", false);
+
+    public readonly MelonPreferences_Entry<SteamLayer> SteamLayer = category.CreateEntry("SteamLayer", BoneSnap.SteamLayer.Players);
+
+    // The spectator camera's field of view in fisheye mode
+    public const float DefaultFieldOfView = 78f;
+    
+    // Only used by the Advanced preset
+    public readonly Dictionary<string, MelonPreferences_Entry<bool>> PostProcessingEffects =
+        CreatePostProcessingEntries(category);
+
+    public bool IsEffectEnabled(PostProcessingEffect effect) => PostProcessingPreset.Value switch
+    {
+        BoneSnap.PostProcessingPreset.Minimal => effect.Key is not "LensDistortion",
+        BoneSnap.PostProcessingPreset.MatchHeadset => effect.Key is not ("LensDistortion" or "ChromaticAberration" or "AutoExposure"),
+        BoneSnap.PostProcessingPreset.Custom => PostProcessingEffects[effect.Key].Value,
+        _ => true
+    };
+    
+    public HashSet<string> GetDisabledVolumeComponents()
+    {
+        var preferences = this;
+        return PostProcessingEffect.All
+            .Where(effect => !preferences.IsEffectEnabled(effect))
+            .SelectMany(effect => effect.VolumeComponents)
+            .ToHashSet();
+    }
+
+    private static Dictionary<string, MelonPreferences_Entry<bool>> CreatePostProcessingEntries(MelonPreferences_Category category)
+        => PostProcessingEffect.All.ToDictionary(
+            effect => effect.Key,
+            effect => category.CreateEntry($"PostProcessing_{effect.Key}", true));
+
     public string GetExplorerOutputPath()
     {
         var path = OutputPath.Value.StartsWith("UserData/")
