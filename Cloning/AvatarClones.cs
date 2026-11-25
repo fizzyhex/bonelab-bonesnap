@@ -4,6 +4,7 @@ using BoneSnap.Assets;
 using BoneSnap.Multiplayer;
 using BoneSnap.Utilities;
 using Il2CppSLZ.Marrow;
+using Il2CppSLZ.VRMK;
 using MelonLoader;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -11,12 +12,20 @@ using Object = UnityEngine.Object;
 
 namespace BoneSnap.Cloning;
 
+public enum AvatarVisibility
+{
+    Show,
+    ItemsOnly,
+    Hide
+}
+
 /// <summary>
 /// Responsible for producing mesh bakes of cloned avatars (and optionally held items)
 /// </summary>
-internal sealed record AvatarClone(int Id, byte? Owner, GameObject Root, List<Renderer> Renderers, List<Mesh> OwnedMeshes)
+internal sealed record AvatarClone(int Id, byte? Owner, GameObject Root, List<Renderer> Renderers, Renderer[] AvatarRenderers, List<Mesh> OwnedMeshes, AvatarVisibility Visibility)
 {
     public bool IsLocal => Owner == null;
+    public bool HoldingItems => AvatarRenderers.Length != Renderers.Count;
 
     public Bounds GetBounds()
     {
@@ -110,6 +119,8 @@ internal static class AvatarClones
         AddForced(avatar.headMeshes, checkEnabled: false); // BL disables head mesh renderers already
         AddForced(avatar.hairMeshes, checkEnabled: true);
 
+        var avatarSourceCount = sources.Count;
+
         if (includeHeld)
         {
             foreach (var held in RigQuery.GetHeldObjects(rig))
@@ -118,18 +129,32 @@ internal static class AvatarClones
 
         var root = new GameObject($"BoneSnap Clone {id}");
         var renderers = new List<Renderer>();
+        var avatarRenderers = new List<Renderer>();
         var ownedMeshes = new List<Mesh>();
         var copied = new HashSet<IntPtr>();
 
-        foreach (var (renderer, mesh) in sources)
+        for (var i = 0; i < sources.Count; i++)
         {
+            var (renderer, mesh) = sources[i];
+
             if (!copied.Add(renderer.Pointer))
                 continue;
 
-            renderers.Add(CopyRenderer(renderer, mesh, root.transform, forced.Contains(renderer.Pointer), ownedMeshes));
+            var copy = CopyRenderer(renderer, mesh, root.transform, forced.Contains(renderer.Pointer), ownedMeshes);
+            renderers.Add(copy);
+
+            if (i < avatarSourceCount)
+                avatarRenderers.Add(copy);
         }
 
-        var clone = new AvatarClone(id, owner, root, renderers, ownedMeshes);
+        var clone = new AvatarClone(Id: id,
+            Owner: owner,
+            Root: root,
+            Renderers: renderers,
+            AvatarRenderers: avatarRenderers.ToArray(),
+            OwnedMeshes: ownedMeshes,
+            Visibility: AvatarVisibility.Show);
+        
         Clones.Add(clone);
         Changed?.Invoke();
         return clone;
@@ -153,6 +178,43 @@ internal static class AvatarClones
                 sources.Add((mesh, mesh.sharedMesh));
             }
         }
+    }
+
+    /// <summary>
+    /// Hides the clone, leaving its held items in place
+    /// </summary>
+    public static void SetVisibility(AvatarClone clone, AvatarVisibility visibility)
+    {
+        switch (visibility)
+        {
+            case AvatarVisibility.Hide:
+            {
+                foreach (var renderer in clone.Renderers)
+                    renderer.enabled = false;
+                break;
+            }
+            case AvatarVisibility.ItemsOnly:
+            {
+                foreach (var renderer in clone.Renderers)
+                    renderer.enabled = true;
+            
+                foreach (var renderer in clone.AvatarRenderers)
+                    renderer.enabled = false;
+                break;
+            }
+            case AvatarVisibility.Show:
+            {
+                foreach (var renderer in clone.Renderers)
+                    renderer.enabled = true;
+                break;
+            }
+            default:
+                throw new ArgumentOutOfRangeException(nameof(visibility), visibility, null);
+        }
+        
+        var modifiedClone = clone with { Visibility = visibility };
+        Clones[Clones.IndexOf(clone)] = modifiedClone;
+        Changed?.Invoke();
     }
 
     public static void Delete(AvatarClone clone)
@@ -222,7 +284,7 @@ internal static class AvatarClones
     {
         var skinned = source.TryCast<SkinnedMeshRenderer>();
         
-        // cloth bakes have transforms relativet o the root instead of the renderer,
+        // cloth bakes have transforms relative to the root instead of the renderer,
         // because sure i guess
         var cloth = skinned != null ? skinned.GetComponent<Cloth>() : null;
         var simulated = cloth != null && cloth.enabled && skinned!.rootBone != null;

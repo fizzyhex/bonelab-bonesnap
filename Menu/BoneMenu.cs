@@ -31,6 +31,7 @@ internal abstract class BoneMenu
     private static readonly Dictionary<(Page Parent, string Name), Page> ChildPages = new();
     private static readonly Dictionary<Page, FunctionElement> PreviewButtons = new();
     private static bool _watchingPreview;
+    private static int _focusedClone = -1;
     
     public static void DrawBoneMenu(BoneSnapPreferences preferences, Screenshotter screenshotter, Page? page=null)
     {
@@ -524,18 +525,105 @@ internal abstract class BoneMenu
             managePage.CreateConfirmFunction("Delete All", Color.red, AvatarClones.DeleteAll,
                 confirmText: "Confirm?");
 
-            for (var i = 0; i < clones.Count; i++)
+            if (clones.Count > 8)
             {
-                var clone = clones[i];
-
-                managePage.CreateConfirmFunction($"Clone {i + 1}", Color.white,
-                    onConfirmed: () => AvatarClones.Delete(clone),
-                    onArmed: () => CloneHighlighter.Show(clone),
-                    onReset: () => CloneHighlighter.Hide(clone),
-                    confirmText: "Delete?");
+                // BoneMenu doesn't handle full page refreshes with lots of entries very well.
+                // Fall back to subpages to reduce stutters, even if they don't look as cool.
+                RenderSubPageCloneEntries();
+            }
+            else
+            {
+                RenderInlineCloneEntries();
             }
 
-            managePage.Refresh();
+            return;
+
+            void RenderSubPageCloneEntries()
+            {
+                var clonePage = managePage.CreatePage("Some Clone", Color.white, 0, false);
+
+                for (var index = 0; index < clones.Count; index++)
+                {
+                    var cloneIndex = index;
+                    var cloneName = $"Clone {index + 1}";
+                    
+                    managePage.CreateFunction($"{cloneName} {PageGlyph}", Color.white, () =>
+                    {
+                        clonePage.RemoveAll();
+                        RenderCloneOptions(clonePage, clones[cloneIndex]);
+                        clonePage.Name = cloneName;
+                        BoneLib.BoneMenu.Menu.OpenPage(clonePage);
+                    });
+                }
+            }
+
+            void RenderInlineCloneEntries()
+            {
+                var isFocusSet = _focusedClone != -1;
+            
+                for (var index = 0; index < clones.Count; index++)
+                {
+                    var isFocused = _focusedClone == index;
+                    var clone = clones[index];
+
+                    var cloneIndex = index;
+                    managePage.CreateFunction($"Clone {index + 1}", isFocused ? AccentColor.Current : isFocusSet ? Color.gray : Color.white, () =>
+                    {
+                        if (isFocused)
+                        {
+                            _focusedClone = -1;
+                            CloneHighlighter.Hide(clone);
+                        }
+                        else
+                        {
+                            CloneHighlighter.Show(clone);
+                            _focusedClone = cloneIndex;
+                        }
+
+                        RenderAvatarCloning(cloningPage);
+                        cloningPage.Refresh();
+                    });
+
+                    if (isFocused)
+                    {
+                        RenderCloneOptions(managePage, clone);
+                    }
+                }
+
+                managePage.Refresh();
+            }
+
+            void RenderCloneOptions(Page cloneOptionsPage, AvatarClone clone)
+            {
+                cloneOptionsPage.CreateConfirmFunction($"Delete", Color.white,
+                    onConfirmed: () =>
+                    {
+                        _focusedClone = -1;
+                        AvatarClones.Delete(clone);
+                    },
+                    confirmText: "Confirm?");
+
+                if (clone.HoldingItems)
+                {
+                    cloneOptionsPage.CreateDisplayEnum("Visibility", Color.white, clone.Visibility, 
+                        [
+                            (AvatarVisibility.Show, "Avatar & Items"),
+                            (AvatarVisibility.ItemsOnly, "Items"),
+                            (AvatarVisibility.Hide, "Hidden")
+                        ],
+                        visibility =>
+                        {
+                            AvatarClones.SetVisibility(clone, visibility);
+                        });
+                }
+                else
+                {
+                    cloneOptionsPage.CreateFunction(clone.Visibility == AvatarVisibility.Show ? "Hide" : "Show", Color.white, () =>
+                    {
+                        AvatarClones.SetVisibility(clone, clone.Visibility == AvatarVisibility.Show ? AvatarVisibility.Hide : AvatarVisibility.Show);
+                    });
+                }
+            }
         }
 
         void RenderFieldOfView(Page cameraPage)
@@ -682,11 +770,13 @@ internal abstract class BoneMenu
         }
     }
 
+    private const string PageGlyph = "<color=grey>›</color>";
+    
     /// <param name="title">Display name, for pages whose name changes. Defaults to <paramref name="name"/>.</param>
     private static Page GetOrCreatePage(Page parent, string name, string? title = null)
     {
         title ??= name;
-        title = $"{title} <color=grey>›</color>";
+        title = $"{title} {PageGlyph}";
 
         if (ChildPages.TryGetValue((parent, name), out var existing))
         {
@@ -762,7 +852,6 @@ internal abstract class BoneMenu
             return;
 
         SnapCameraContent.Changed += () => _renderSnapCamera?.Invoke();
-        // The warehouse may not have loaded when the menu was first drawn
         Hooking.OnLevelLoaded += _ => _renderSnapCamera?.Invoke();
     }
 }
