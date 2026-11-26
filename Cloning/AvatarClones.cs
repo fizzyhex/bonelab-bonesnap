@@ -80,17 +80,15 @@ internal static class AvatarClones
 
     private static IEnumerator CloneLocal(bool includeHeld)
     {
+        yield return new WaitForEndOfFrame();
+
+        if (Player.RigManager == null)
+            yield break;
+
         AvatarClone? clone;
 
-        using (HeadOffset.Suppress())
-        {
-            yield return new WaitForEndOfFrame();
-
-            if (Player.RigManager == null)
-                yield break;
-
+        using (HeadOffset.Remove())
             clone = Create(Player.RigManager, includeHeld, owner: null, id: ++_nextId);
-        }
 
         if (clone == null)
             yield break;

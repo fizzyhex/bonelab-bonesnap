@@ -4,13 +4,14 @@
 
 [Thunderstore](https://bonelab.thunderstore.io/package/Fizzyhex/BoneSnap) ↔ [GitHub](https://github.com/Fizzyhex/bonelab-bonesnap)
 
-- accurate high-res captures and screenshots
+- save accurate high-res captures and screenshots, with an on-screen preview
 - compositing
-- compatibility with the SNAP CAMERA spawnable - a handheld camera.
-- personalisation
+- camera settings
 - avatar cloning for scene makers
+- integration the SNAP CAMERA spawnable - a handheld camera.
+- personalisation
 
-## Features
+## Feature Breakdown
 
 ### Compositing
 

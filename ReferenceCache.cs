@@ -26,14 +26,17 @@ public class ReferenceCache
         var rigScreenOptions = GetRigScreenOptions();
         var spectatorCamera = rigScreenOptions != null ? GetSpectatorCamera(rigScreenOptions) : null;
 
-        _spectatorReferences = new SpectatorReferences
+        var references = new SpectatorReferences
         {
-            RigScreenOptions = GetRigScreenOptions(),
+            RigScreenOptions = rigScreenOptions,
             Camera = spectatorCamera,
             Follower = spectatorCamera != null ? spectatorCamera.GetComponent<SmoothFollower>() : null
         };
-        
-        return (SpectatorReferences)_spectatorReferences;
+
+        if (spectatorCamera != null)
+            _spectatorReferences = references;
+
+        return references;
     }
     
     private RigScreenOptions? GetRigScreenOptions()

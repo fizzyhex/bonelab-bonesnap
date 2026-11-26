@@ -1,6 +1,7 @@
 using BoneLib;
 using HarmonyLib;
 using Il2CppSLZ.Marrow;
+using UnityEngine;
 
 namespace BoneSnap.Utilities;
 
@@ -9,25 +10,25 @@ namespace BoneSnap.Utilities;
 /// </summary>
 internal static class HeadOffset
 {
-    private static int _suppressors;
+    private static Transform? _head;
+    private static Vector3 _unoffsetHeadPosition;
 
-    public static IDisposable Suppress()
+    public static IDisposable? Remove()
     {
-        _suppressors++;
-        return new Scope();
+        if (_head == null)
+            return null;
+
+        var offsetPosition = _head.localPosition;
+        _head.localPosition = _unoffsetHeadPosition;
+        return new RemovalScope(_head, offsetPosition);
     }
 
-    private sealed class Scope : IDisposable
+    private sealed class RemovalScope(Transform head, Vector3 offsetPosition) : IDisposable
     {
-        private bool _disposed;
-
         public void Dispose()
         {
-            if (_disposed)
-                return;
-
-            _disposed = true;
-            _suppressors--;
+            if (head != null)
+                head.localPosition = offsetPosition;
         }
     }
 
@@ -36,13 +37,18 @@ internal static class HeadOffset
     {
         // ReSharper disable once InconsistentNaming
         // ReSharper disable once UnusedMember.Local
-        private static bool Prefix(PlayerAvatarArt __instance)
+        private static void Prefix(PlayerAvatarArt __instance)
         {
-            if (_suppressors == 0)
-                return true;
-
             var localRig = Player.RigManager;
-            return localRig == null || __instance.GetComponentInParent<RigManager>() != localRig;
+
+            if (localRig == null || __instance.GetComponentInParent<RigManager>() != localRig)
+                return;
+
+            var animator = localRig.avatar != null ? localRig.avatar.animator : null;
+            _head = animator != null && animator.isHuman ? animator.GetBoneTransform(HumanBodyBones.Head) : null;
+
+            if (_head != null)
+                _unoffsetHeadPosition = _head.localPosition;
         }
     }
 }

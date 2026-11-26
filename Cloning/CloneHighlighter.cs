@@ -1,4 +1,5 @@
 using BoneSnap.Personalisation;
+using MelonLoader;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -11,18 +12,22 @@ internal static class CloneHighlighter
 {
     private static AvatarClone? _highlighted;
     private static Material? _lineMaterial;
-    private static bool _hooked;
+    private static CloneHighlighterHost? _host;
+    private static Camera? _currentCamera;
 
     public static void Show(AvatarClone clone)
     {
         _highlighted = clone;
 
-        if (_hooked)
+        if (_host != null)
             return;
 
-        _hooked = true;
-        RenderPipelineManager.add_endCameraRendering(
-            (Il2CppSystem.Action<ScriptableRenderContext, Camera>)OnEndCameraRendering);
+        var gameObject = new GameObject("BoneSnap Clone Highlighter") { hideFlags = HideFlags.HideAndDontSave };
+        UnityEngine.Object.DontDestroyOnLoad(gameObject);
+        _host = gameObject.AddComponent<CloneHighlighterHost>();
+
+        RenderPipelineManager.add_beginCameraRendering(
+            (Il2CppSystem.Action<ScriptableRenderContext, Camera>)OnBeginCameraRendering);
     }
 
     public static void Hide(AvatarClone clone)
@@ -31,10 +36,18 @@ internal static class CloneHighlighter
             _highlighted = null;
     }
 
-    private static void OnEndCameraRendering(ScriptableRenderContext context, Camera camera)
+    private static void OnBeginCameraRendering(ScriptableRenderContext context, Camera camera)
     {
-        // Captures render into textures, so the box stays out of snaps
-        if (_highlighted == null || _highlighted.Root == null || camera.targetTexture != null)
+        _currentCamera = camera;
+    }
+
+    internal static void Render()
+    {
+
+        if (_highlighted == null || _highlighted.Root == null)
+            return;
+
+        if (_currentCamera != null && _currentCamera.targetTexture != null)
             return;
 
         var material = GetLineMaterial();
@@ -47,9 +60,6 @@ internal static class CloneHighlighter
         var max = bounds.max;
 
         material.SetPass(0);
-        GL.PushMatrix();
-        GL.LoadProjectionMatrix(camera.projectionMatrix);
-        GL.modelview = camera.worldToCameraMatrix;
         GL.Begin(GL.LINES);
         GL.Color(AccentColor.Current);
 
@@ -67,7 +77,6 @@ internal static class CloneHighlighter
         }
 
         GL.End();
-        GL.PopMatrix();
         return;
 
         Vector3 Corner(int index) => new(
@@ -92,4 +101,12 @@ internal static class CloneHighlighter
         _lineMaterial.SetInt("_ZWrite", 0);
         return _lineMaterial;
     }
+}
+
+[RegisterTypeInIl2Cpp]
+internal class CloneHighlighterHost : MonoBehaviour
+{
+    public CloneHighlighterHost(IntPtr intPtr) : base(intPtr) { }
+
+    private void OnRenderObject() => CloneHighlighter.Render();
 }

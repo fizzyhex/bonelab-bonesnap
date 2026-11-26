@@ -6,7 +6,7 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <DefineConstants>$(DefineConstants);MELONLOADER</DefineConstants>
-        <!-- Stop local builds from compiling against the stubs instead of the game install -->
+        <!-- Prevent local builds from compiling against the stubs instead of the game install -->
         <DefaultItemExcludes>$(DefaultItemExcludes);ReferenceStubs/**</DefaultItemExcludes>
     </PropertyGroup>
 
@@ -77,11 +77,17 @@
       <Reference Include="Unity.RenderPipelines.Universal.Runtime">
         <HintPath>$(BONELAB_DIR)\MelonLoader\Il2CppAssemblies\Unity.RenderPipelines.Universal.Runtime.dll</HintPath>
       </Reference>
+      <Reference Include="Unity.RenderPipelines.Universal.StressLevelZero.VRS">
+        <HintPath>$(BONELAB_DIR)\MelonLoader\Il2CppAssemblies\Unity.RenderPipelines.Universal.StressLevelZero.VRS.dll</HintPath>
+      </Reference>
       <Reference Include="UnityEngine">
         <HintPath>$(BONELAB_DIR)\MelonLoader\Il2CppAssemblies\UnityEngine.dll</HintPath>
       </Reference>
       <Reference Include="UnityEngine.AudioModule">
         <HintPath>$(BONELAB_DIR)\MelonLoader\Il2CppAssemblies\UnityEngine.AudioModule.dll</HintPath>
+      </Reference>
+      <Reference Include="UnityEngine.AnimationModule">
+        <HintPath>$(BONELAB_DIR)\MelonLoader\Il2CppAssemblies\UnityEngine.AnimationModule.dll</HintPath>
       </Reference>
       <Reference Include="UnityEngine.ClothModule">
         <HintPath>$(BONELAB_DIR)\MelonLoader\Il2CppAssemblies\UnityEngine.ClothModule.dll</HintPath>

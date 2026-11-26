@@ -136,6 +136,8 @@ public readonly struct BoneSnapPreferences(MelonPreferences_Category category)
     // Master switch for the field of view and post-processing overrides
     public readonly MelonPreferences_Entry<bool> CameraOverrides = category.CreateEntry("CameraOverrides", true);
 
+    public readonly MelonPreferences_Entry<bool> OverrideDesktopView = category.CreateEntry("OverrideDesktopView", false);
+
     public readonly MelonPreferences_Entry<float> CloneDelay = category.CreateEntry("CloneDelay", 3f);
 
     public readonly MelonPreferences_Entry<bool> CloneIncludeHeldItems = category.CreateEntry("CloneIncludeHeldItems", true);
@@ -144,7 +146,7 @@ public readonly struct BoneSnapPreferences(MelonPreferences_Category category)
 
     public readonly MelonPreferences_Entry<SteamLayer> SteamLayer = category.CreateEntry("SteamLayer", BoneSnap.SteamLayer.Players);
 
-    // The spectator camera's field of view in fisheye mode
+    // The spectator camera's default field of view
     public const float DefaultFieldOfView = 78f;
     
     // Only used by the Advanced preset

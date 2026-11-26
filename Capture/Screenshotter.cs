@@ -47,7 +47,6 @@ internal partial class Screenshotter
         int Height,
         int Quality,
         CompositingLayer Layer = Capture.CompositingLayer.Combined,
-        // RGB24 colour to combine with this capture's alpha when encoding
         Il2CppStructArray<byte>? ColorPixels = null);
 
     // Encodes can hang when they overlap on attached threads
@@ -118,13 +117,10 @@ internal partial class Screenshotter
     {
         var result = new CaptureResult();
 
-        using (captureParams.ShiftHeadOffset ? HeadOffset.Suppress() : null)
-        {
-            var steps = capture(captureParams, result);
+        var steps = capture(captureParams, result);
 
-            while (steps.MoveNext())
-                yield return steps.Current;
-        }
+        while (steps.MoveNext())
+            yield return steps.Current;
 
         if (result.Captures is not { Length: > 0 } rawCaptures)
             yield break;

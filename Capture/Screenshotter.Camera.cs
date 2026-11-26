@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Diagnostics;
 using BoneSnap.SDK;
+using BoneSnap.Utilities;
 using Il2CppSLZ.Bonelab.SaveData;
 using Il2CppSLZ.Marrow.SaveData;
 using MelonLoader;
@@ -123,6 +124,7 @@ internal partial class Screenshotter
         {
             using (CameraAdjustments.Apply(spectatorCamera, captureParams))
             using (AutoExposureFreeze.Apply(spectatorCamera))
+            using (captureParams.ShiftHeadOffset ? HeadOffset.Remove() : null)
             {
                 CompositingLayer[] layers = captureParams.CompositingMode switch
                 {
@@ -156,8 +158,11 @@ internal partial class Screenshotter
         if (captureParams.ShiftHeadOffset)
             yield return new WaitForEndOfFrame();
 
-        if (TryRender(captureParams, out var capture))
-            result.Captures = [capture];
+        using (captureParams.ShiftHeadOffset ? HeadOffset.Remove() : null)
+        {
+            if (TryRender(captureParams, out var capture))
+                result.Captures = [capture];
+        }
     }
 
     /// <summary>

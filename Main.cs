@@ -29,6 +29,8 @@ internal partial class Main : MelonMod
 
         _referenceCache = new ReferenceCache();
         _screenshotter = new Screenshotter(_referenceCache);
+        DesktopViewOverride.Initialize(_boneSnapPreferences, _referenceCache);
+        SpectatorFoveation.Initialize(_referenceCache);
 
         BoneMenu.DrawBoneMenu(_boneSnapPreferences, _screenshotter);
         AssetManager.Initialize();
