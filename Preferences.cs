@@ -186,6 +186,6 @@ public readonly struct BoneSnapPreferences(MelonPreferences_Category category)
 
     public void ManualSave()
     {
-        category.SaveToFile();
+        category.SaveToFile(printmsg:false); // that was getting so fucking annoying haha
     }
 }
